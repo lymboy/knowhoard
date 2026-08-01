@@ -273,7 +273,12 @@ async function loadConversations() {
       input.select();
       const commit = async () => {
         const newTitle = input.value.trim() || conv.title;
-        if (newTitle !== conv.title) await kb.conversations.rename(conv.id, newTitle);
+        if (newTitle !== conv.title) {
+          await kb.conversations.rename(conv.id, newTitle);
+          // 改的正好是当前打开的这个会话时，顶部标题栏是另一份独立状态，不会跟着侧边栏联动，
+          // 不补这一句的话，重命名完顶部还是显示改名前的旧标题，看着像没生效
+          if (conv.id === state.activeConversationId) el("chatTitle").textContent = newTitle;
+        }
         loadConversations();
       };
       input.addEventListener("blur", commit);

@@ -1,8 +1,21 @@
-# 🐲 knowhoard (小怪兽知识库)
+<p align="center">
+  <img src="./build/icon.png" width="140" alt="knowhoard logo">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#)
-[![Local First](https://img.shields.io/badge/data-100%25%20local-brightgreen.svg)](#-why-this-exists)
+<h1 align="center">🐲 knowhoard</h1>
+<p align="center"><i>小怪兽知识库 — a local-first personal knowledge base</i></p>
+
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-lightgrey.svg" alt="Platform: macOS">
+  <img src="https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white" alt="Electron">
+  <img src="https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs&logoColor=white" alt="Node.js 18+">
+  <img src="https://img.shields.io/badge/SQLite-FTS5-07405E?logo=sqlite&logoColor=white" alt="SQLite FTS5">
+  <img src="https://img.shields.io/badge/LanceDB-Vector%20Store-FFCA28" alt="LanceDB">
+  <img src="https://img.shields.io/badge/Obsidian-Vault%20Connector-7C3AED?logo=obsidian&logoColor=white" alt="Obsidian connector">
+  <img src="https://img.shields.io/badge/MCP-Tool%20Calling-FF6B35" alt="MCP tool calling">
+  <img src="https://img.shields.io/badge/Embedding-100%25%20Local-2EA44F" alt="100% local embedding">
+</p>
 
 A **local-first** personal knowledge base desktop app. Point it at your Word / PDF / Markdown files, or an entire Obsidian vault — it indexes everything locally and lets you ask questions against your own notes using any OpenAI-compatible LLM you configure. Answers are grounded with citations back to the exact source document.
 
