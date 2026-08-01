@@ -21,6 +21,8 @@
 
 📖 [English](./README.md)
 
+![首次启动引导：能做什么、隐私承诺](./docs/screenshots/onboarding.png)
+
 ![对话视图：流式回答、思考模式、引用来源](./docs/screenshots/chat-view.png)
 
 ![设置视图：Token 用量图表、LLM 配置](./docs/screenshots/settings-token-usage.png)

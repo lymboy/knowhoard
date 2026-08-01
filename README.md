@@ -21,6 +21,8 @@ A **local-first** personal knowledge base desktop app. Point it at your Word / P
 
 📖 [中文文档](./README.zh-CN.md)
 
+![First-run onboarding: what it does and the privacy promise](./docs/screenshots/onboarding.png)
+
 ![Chat view: streaming answer with thinking mode and reasoning trace](./docs/screenshots/chat-view.png)
 
 ![Settings view: token usage chart and LLM configuration](./docs/screenshots/settings-token-usage.png)
