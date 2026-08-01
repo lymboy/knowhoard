@@ -1,0 +1,51 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b1730"/>
+      <stop offset="1" stop-color="#0c0a1a"/>
+    </linearGradient>
+    <linearGradient id="body" x1="180" y1="260" x2="844" y2="820" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff8a65"/>
+      <stop offset="1" stop-color="#ff5f8f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="512" cy="380" r="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3a2e63" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#3a2e63" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- macOS 风格圆角背景 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <circle cx="512" cy="380" r="420" fill="url(#glow)"/>
+
+  <!-- 小怪兽身体 -->
+  <g>
+    <!-- 两只小角 -->
+    <path d="M368 300 L336 190 L420 262 Z" fill="url(#body)"/>
+    <path d="M656 300 L688 190 L604 262 Z" fill="url(#body)"/>
+
+    <!-- 圆润的身体轮廓 -->
+    <path d="M512 250
+             C 660 250 758 358 758 520
+             C 758 672 650 782 512 782
+             C 374 782 266 672 266 520
+             C 266 358 364 250 512 250 Z"
+          fill="url(#body)"/>
+
+    <!-- 肚皮高光，增加层次 -->
+    <ellipse cx="512" cy="560" rx="210" ry="150" fill="#1b1730" opacity="0.14"/>
+
+    <!-- 眼睛 -->
+    <circle cx="428" cy="486" r="46" fill="#1b1730"/>
+    <circle cx="612" cy="486" r="46" fill="#1b1730"/>
+    <circle cx="444" cy="470" r="14" fill="#ffffff"/>
+    <circle cx="628" cy="470" r="14" fill="#ffffff"/>
+
+    <!-- 小尖牙 -->
+    <path d="M492 596 L512 646 L532 596 Z" fill="#ffffff"/>
+
+    <!-- 腮红 -->
+    <circle cx="356" cy="560" r="26" fill="#ffe1a8" opacity="0.55"/>
+    <circle cx="684" cy="560" r="26" fill="#ffe1a8" opacity="0.55"/>
+  </g>
+</svg>

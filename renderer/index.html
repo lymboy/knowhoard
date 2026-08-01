@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';" />
+<title>小怪兽知识库</title>
+<link rel="stylesheet" href="../node_modules/github-markdown-css/github-markdown.css" />
+<link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="onboardingOverlay" class="onboarding-overlay" hidden>
+    <div class="onboarding-card">
+      <div class="onboarding-header">
+        <img src="../build/mascot-cropped.png" alt="小怪兽" class="onboarding-mascot" />
+        <h1>你好，我是小怪兽 👋</h1>
+        <p class="onboarding-sub">这是一个完全跑在你电脑本地的个人知识库问答客户端</p>
+      </div>
+
+      <div class="onboarding-scroll">
+        <div class="onboarding-section">
+          <h3>它能帮你做什么</h3>
+          <ul>
+            <li>一键接入你的 Word / PDF / Markdown 笔记，或整个 Obsidian 知识库，从成堆的文档里直接问出答案，不用自己翻</li>
+            <li>回答会标注具体引用了哪份文档、哪个位置，有据可查，不是凭空瞎编</li>
+            <li>大模型你说了算——接入你已有的任意 OpenAI 兼容接口，用哪个模型自己定，不绑定任何一家</li>
+            <li>检索和排序全部在这台电脑上算，不额外花一分钱，也不用等云端排队</li>
+          </ul>
+        </div>
+
+        <div class="onboarding-section privacy">
+          <h3>关于隐私，我的承诺</h3>
+          <p>你的文档、笔记、对话记录<mark>只保存在这台电脑上</mark>，全程<mark>本地处理</mark>、<mark>离线运行</mark>，不会被采集或上传到任何地方，<mark>安全不泄露</mark>。唯一会离开本机的数据，是你主动提问时发给你自己配置的那个大模型接口的内容——这是问答本身需要的，除此之外没有任何后台上报或遥测。</p>
+        </div>
+      </div>
+
+      <div class="onboarding-footer">
+        <p class="onboarding-contact">有问题或建议，欢迎邮件联系：<a href="mailto:liusairo@gmail.com">liusairo@gmail.com</a></p>
+        <button id="onboardingDismiss" class="primary">开始使用</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmOverlay" class="confirm-overlay" hidden>
+    <div class="confirm-card">
+      <p id="confirmMessage"></p>
+      <div class="confirm-actions">
+        <button id="confirmCancelBtn">取消</button>
+        <button id="confirmOkBtn" class="danger">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="app">
+    <nav class="sidebar">
+      <div class="brand">
+        <img src="../build/icon.png" alt="logo" class="brand-logo" />
+        <div class="brand-text">
+          <div class="brand-title">小怪兽知识库</div>
+          <div class="brand-sub">本地优先 · 隐私可靠</div>
+        </div>
+      </div>
+
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-view="chat">对话</button>
+        <button class="nav-tab" data-view="favorites">收藏</button>
+        <button class="nav-tab" data-view="knowledge">知识库</button>
+        <button class="nav-tab" data-view="settings">设置</button>
+      </div>
+
+      <div class="conversation-list" id="conversationList">
+        <button class="new-conversation" id="newConversationBtn">+ 新建会话</button>
+        <div id="conversationItems"></div>
+      </div>
+
+      <div class="ai-status" id="aiStatus"><span class="status-dot" id="aiStatusDot"></span><span id="aiStatusText">本地检索模型：尚未加载（问答或同步时会自动加载）</span></div>
+    </nav>
+
+    <main class="content">
+      <!-- 对话视图 -->
+      <section class="view view-chat active" id="view-chat">
+        <div class="chat-toolbar">
+          <span id="chatTitle" class="chat-title"></span>
+          <div class="chat-toolbar-actions">
+            <span id="selectionCount" class="hint" hidden></span>
+            <button id="deleteSelectedBtn" class="danger" hidden>删除选中</button>
+            <button id="toggleSelectModeBtn">批量删除</button>
+          </div>
+        </div>
+        <div class="messages" id="messages"></div>
+        <div class="composer">
+          <div class="composer-toggles">
+            <button type="button" class="mode-pill active" id="ragToggle">检索本地知识库</button>
+            <button type="button" class="mode-pill" id="mcpToggle" hidden>启用 MCP 工具</button>
+            <button type="button" class="mode-pill" id="thinkingToggle" hidden>思考模式</button>
+          </div>
+          <div class="composer-input">
+            <textarea id="messageInput" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）" rows="1"></textarea>
+            <button id="sendBtn">发送</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 收藏视图 -->
+      <section class="view view-favorites" id="view-favorites">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>收藏</h2>
+          </div>
+          <div class="favorites-list" id="favoritesList"></div>
+        </div>
+      </section>
+
+      <!-- 知识库视图 -->
+      <section class="view view-knowledge" id="view-knowledge">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>数据源</h2>
+            <div class="panel-actions">
+              <button id="addSourceBtn">添加目录 / 文件</button>
+              <button id="addObsidianBtn">连接 Obsidian</button>
+              <button id="syncAllBtn" class="primary">全部同步</button>
+            </div>
+          </div>
+          <div class="stats-bar" id="statsBar"></div>
+          <div id="obsidianVaultPicker" class="obsidian-vault-picker" hidden></div>
+          <div class="source-list" id="sourceList"></div>
+          <div class="sync-log" id="syncLog"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <h2>浏览 / 按文件名找文档</h2>
+          </div>
+          <input type="text" id="docSearchInput" class="text-input" placeholder="按文件名、目录或内容关键词搜索…" />
+          <div class="doc-list" id="docList"></div>
+        </div>
+      </section>
+
+      <!-- 设置视图 -->
+      <section class="view view-settings" id="view-settings">
+        <div class="panel">
+          <div class="panel-header"><h2>Token 用量</h2></div>
+          <div class="usage-summary">
+            <div class="usage-stat">
+              <div class="usage-label">今天</div>
+              <div class="usage-value" id="usageToday">—</div>
+            </div>
+            <div class="usage-stat">
+              <div class="usage-label">本周</div>
+              <div class="usage-value" id="usageWeek">—</div>
+            </div>
+            <div class="usage-stat">
+              <div class="usage-label">本月</div>
+              <div class="usage-value" id="usageMonth">—</div>
+            </div>
+          </div>
+          <svg id="usageChart" class="usage-chart" viewBox="0 0 700 180" preserveAspectRatio="none"></svg>
+          <div class="usage-legend">
+            <span><i class="legend-dot prompt"></i>输入</span>
+            <span><i class="legend-dot completion"></i>输出</span>
+            <div class="usage-granularity">
+              <button type="button" class="granularity-btn active" data-granularity="day">按天</button>
+              <button type="button" class="granularity-btn" data-granularity="hour">按小时</button>
+              <button type="button" class="granularity-btn" data-granularity="minute">按分钟</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h2>LLM 配置（OpenAI 兼容接口）</h2></div>
+          <div class="form-grid">
+            <label>Base URL<input type="text" id="llmBaseUrl" placeholder="https://api.example.com/v1" /></label>
+            <label>API Key (SK)<input type="password" id="llmApiKey" placeholder="sk-..." /></label>
+            <label class="span-2">
+              模型名称
+              <select id="llmModelSelect" hidden></select>
+              <input type="text" id="llmModel" placeholder="填了 Base URL/API Key 后自动拉取模型列表，拉不到再手填" />
+              <span id="modelListHint" class="hint"></span>
+            </label>
+          </div>
+
+          <div class="header-rows-block">
+            <div class="header-rows-title">自定义请求头（可选）</div>
+            <div id="customHeaderRows"></div>
+            <button type="button" id="addHeaderRowBtn" class="add-row-btn">+ 添加请求头</button>
+          </div>
+
+          <details class="advanced">
+            <summary>高级参数</summary>
+            <div class="form-grid">
+              <label>Temperature<input type="number" id="llmTemperature" step="0.1" min="0" max="2" /></label>
+              <label>Top P<input type="number" id="llmTopP" step="0.05" min="0" max="1" /></label>
+              <label>Top K（部分网关支持）<input type="number" id="llmTopK" step="1" min="0" /></label>
+              <label>Max Tokens（留空为不限制）<input type="number" id="llmMaxTokens" step="1" min="1" /></label>
+            </div>
+          </details>
+          <div class="row">
+            <button id="testThinkingBtn">检测是否支持思考模式</button>
+            <span id="thinkingProbeResult" class="hint"></span>
+          </div>
+          <div class="row">
+            <button id="saveLlmBtn" class="primary">保存</button>
+            <span id="llmSaveHint" class="hint"></span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h2>系统提示词</h2></div>
+          <textarea id="systemPromptInput" class="text-area" rows="4" placeholder="在内置提示词基础上追加你的要求（比如语气、人设），不会覆盖引用标注等内置行为"></textarea>
+          <div class="row">
+            <button id="saveSystemPromptBtn" class="primary">保存</button>
+            <span id="systemPromptSaveHint" class="hint"></span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header"><h2>MCP 工具</h2></div>
+          <p class="hint">填表单加一个 MCP server，不用手写 JSON。启动命令和参数照抄该工具的安装说明填就行，例如命令填 <code>npx</code>，参数填 <code>-y @modelcontextprotocol/server-filesystem /你的路径</code>。</p>
+
+          <div id="mcpServerList" class="mcp-server-list"></div>
+
+          <div class="mcp-add-form">
+            <div class="form-grid">
+              <label>服务名称<input type="text" id="mcpNewName" placeholder="例如 filesystem" /></label>
+              <label>启动命令<input type="text" id="mcpNewCommand" placeholder="例如 npx" /></label>
+            </div>
+            <label class="mcp-args-label">
+              启动参数（空格分隔，照抄工具文档给的命令行参数即可）
+              <input type="text" id="mcpNewArgs" placeholder="例如 -y @modelcontextprotocol/server-filesystem /Users/you/notes" />
+            </label>
+            <div class="row">
+              <button id="addMcpServerBtn" class="primary">+ 添加这个 MCP 工具</button>
+              <span id="mcpResult" class="hint"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="../node_modules/marked/lib/marked.umd.js"></script>
+  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
+  <script src="vendor/hljs.bundle.js"></script>
+  <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>
+  <script src="../node_modules/katex/dist/katex.min.js"></script>
+  <script src="../node_modules/katex/dist/contrib/auto-render.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
