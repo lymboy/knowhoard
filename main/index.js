@@ -103,11 +103,12 @@ function computeWindowBounds() {
   const display = screen.getDisplayNearestPoint(cursorPoint);
   const { workArea } = display;
 
-  // 只做 Mac 一个平台，分辨率区间相对可控，窗口可以给得更大一点，不用过度保守
+  // 响应式：按工作区比例给窗口大小，只保下限（小屏不至于太小），不设写死上限。
+  // 之前 min(1800)/min(1150) 在 4K 屏把窗口砍小、右侧大段黑——去掉上限让 4K 自适应放大。
   const targetWidth = Math.round(workArea.width * 0.86);
   const targetHeight = Math.round(workArea.height * 0.92);
-  const width = Math.min(1800, Math.max(1280, targetWidth));
-  const height = Math.min(1150, Math.max(820, targetHeight));
+  const width = Math.max(1280, targetWidth);
+  const height = Math.max(820, targetHeight);
 
   const x = Math.round(workArea.x + (workArea.width - width) / 2);
   const y = Math.round(workArea.y + (workArea.height - height) / 2);
