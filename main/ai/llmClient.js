@@ -142,7 +142,7 @@ async function probeThinkingSupport(config) {
  * 之所以工具决策阶段不走流式：中间轮次模型只是在决定"要不要调工具"，
  * 不需要打字机效果，一次性拿到结构化的 tool_calls 更好处理、也更稳。
  */
-async function chatCompletion(config, messages, { tools } = {}) {
+async function chatCompletion(config, messages, { tools, tool_choice } = {}) {
   const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const body = {
     model: config.model,
@@ -152,7 +152,10 @@ async function chatCompletion(config, messages, { tools } = {}) {
     top_p: config.topP ?? 1,
   };
   if (config.maxTokens) body.max_tokens = Number(config.maxTokens);
-  if (tools && tools.length) body.tools = tools;
+  if (tools && tools.length) {
+    body.tools = tools;
+    if (tool_choice) body.tool_choice = tool_choice;
+  }
 
   const response = await fetch(url, {
     method: "POST",

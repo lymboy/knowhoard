@@ -91,7 +91,6 @@
         <div class="composer">
           <div class="composer-toggles">
             <button type="button" class="mode-pill active" id="ragToggle">检索本地知识库</button>
-            <button type="button" class="mode-pill" id="mcpToggle" hidden>启用 MCP 工具</button>
             <button type="button" class="mode-pill" id="thinkingToggle" hidden>思考模式</button>
           </div>
           <div class="composer-input">
@@ -215,23 +214,62 @@
         </div>
 
         <div class="panel">
-          <div class="panel-header"><h2>MCP 工具</h2></div>
-          <p class="hint">填表单加一个 MCP server，不用手写 JSON。启动命令和参数照抄该工具的安装说明填就行，例如命令填 <code>npx</code>，参数填 <code>-y @modelcontextprotocol/server-filesystem /你的路径</code>。</p>
-
-          <div id="mcpServerList" class="mcp-server-list"></div>
-
-          <div class="mcp-add-form">
-            <div class="form-grid">
-              <label>服务名称<input type="text" id="mcpNewName" placeholder="例如 filesystem" /></label>
-              <label>启动命令<input type="text" id="mcpNewCommand" placeholder="例如 npx" /></label>
+          <div class="panel-header">
+            <h2>工具设置</h2>
+            <div class="panel-actions">
+              <label class="toggle-switch-label">
+                <span>启用工具</span>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="toolsMasterToggle" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </label>
             </div>
-            <label class="mcp-args-label">
-              启动参数（空格分隔，照抄工具文档给的命令行参数即可）
-              <input type="text" id="mcpNewArgs" placeholder="例如 -y @modelcontextprotocol/server-filesystem /Users/you/notes" />
-            </label>
+          </div>
+
+          <div class="tool-section">
+            <div class="tool-section-header">
+              <h3>网络搜索</h3>
+              <span class="hint">配置 Exa AI API key 启用语义搜索（效果更好）。留空则降级到 DuckDuckGo（免费但效果一般）。<a href="https://exa.ai" target="_blank">获取 API key</a></span>
+            </div>
+            <div class="form-grid">
+              <label class="span-2">Exa API Key<input type="password" id="exaApiKey" placeholder="留空则使用 DuckDuckGo" /></label>
+            </div>
             <div class="row">
-              <button id="addMcpServerBtn" class="primary">+ 添加这个 MCP 工具</button>
-              <span id="mcpResult" class="hint"></span>
+              <button id="saveExaBtn">保存</button>
+              <span id="exaSaveHint" class="hint"></span>
+            </div>
+          </div>
+
+          <div class="tool-section">
+            <div class="tool-section-header">
+              <h3>内置工具</h3>
+              <span class="hint">无需配置，开箱即用。只能访问已添加数据源目录内的文件。</span>
+            </div>
+            <div id="builtinToolList" class="builtin-tool-list"></div>
+          </div>
+
+          <div class="tool-section">
+            <div class="tool-section-header">
+              <h3>MCP 工具</h3>
+              <span class="hint">填表单加一个 MCP server，不用手写 JSON。启动命令和参数照抄该工具的安装说明填就行。</span>
+            </div>
+
+            <div id="mcpServerList" class="mcp-server-list"></div>
+
+            <div class="mcp-add-form">
+              <div class="form-grid">
+                <label>服务名称<input type="text" id="mcpNewName" placeholder="例如 filesystem" /></label>
+                <label>启动命令<input type="text" id="mcpNewCommand" placeholder="例如 npx" /></label>
+              </div>
+              <label class="mcp-args-label">
+                启动参数（空格分隔，照抄工具文档给的命令行参数即可）
+                <input type="text" id="mcpNewArgs" placeholder="例如 -y @modelcontextprotocol/server-filesystem /Users/you/notes" />
+              </label>
+              <div class="row">
+                <button id="addMcpServerBtn" class="primary">+ 添加这个 MCP 工具</button>
+                <span id="mcpResult" class="hint"></span>
+              </div>
             </div>
           </div>
         </div>

@@ -200,6 +200,18 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
   });
   ipcMain.handle("mcp:hasTools", () => mcpManager.hasAnyTool());
 
+  // ---------- 内置工具 ----------
+  ipcMain.handle("builtinTools:list", () => mcpManager.listBuiltinToolInfo());
+  ipcMain.handle("builtinTools:toggle", (_e, { name, enabled }) => {
+    mcpManager.toggleBuiltinTool(name, enabled);
+    // 持久化到 settings，下次启动恢复开关状态
+    const settings = getSettings();
+    const current = { ...(settings.builtinTools || {}) };
+    current[name] = enabled;
+    updateSettings({ builtinTools: current });
+    return mcpManager.listBuiltinToolInfo();
+  });
+
   // ---------- Token 用量统计 ----------
   ipcMain.handle("stats:tokenUsage", (_e, { granularity = "day" } = {}) => {
     // 按小时/按分钟的话，数据库里的原始行数可能很大，绝不能不设上限地扫全表再聚合——
@@ -431,6 +443,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         thinkingEnabled,
         systemPrompt: settings.systemPrompt,
         llmConfig: settings.llm,
+        exaApiKey: settings.exaApiKey || "",
         aiClient,
         mcpManager,
         signal: abortController.signal,

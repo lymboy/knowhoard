@@ -7,6 +7,8 @@ const { initVectorStore } = require("./vector/store");
 const { initSettings, getSettings } = require("./settings");
 const { AiWorkerClient } = require("./ai/aiWorkerClient");
 const { McpManager } = require("./mcp/mcpClient");
+const { TOOL_DEFINITIONS } = require("./tools/builtinTools");
+const webTools = require("./tools/webTools");
 const { EMBEDDING_DIMENSIONS } = require("./ai/dimensions");
 const { registerIpcHandlers } = require("./ipc");
 const sync = require("./ingest/sync");
@@ -195,6 +197,13 @@ app.whenReady().then(async () => {
   );
   const mcpManager = new McpManager();
   const settings = getSettings();
+  // 初始化下载沙箱
+  webTools.initSandbox(userDataPath);
+  // 注册内置工具（文件工具 + 网络工具），然后从 settings 恢复每个工具的开关状态
+  const allBuiltinTools = [...TOOL_DEFINITIONS, ...webTools.getToolDefinitions()];
+  mcpManager.setBuiltinTools(allBuiltinTools);
+  mcpManager.restoreBuiltinState(settings.builtinTools);
+
   if (settings.mcpServers && Object.keys(settings.mcpServers).length) {
     mcpManager.connectAll(settings.mcpServers).catch((err) => {
       console.error("MCP 初始连接失败", err);

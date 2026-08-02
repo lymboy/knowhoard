@@ -1,17 +1,111 @@
 const { retrieve, buildContextBlock, buildCitations } = require("../rag/retriever");
 const { streamChatCompletion, chatCompletion } = require("./llmClient");
 
-const MAX_TOOL_ROUNDS = 5;
-// 判断"检索到的内容跟用户这句话到底相不相关"，与其在客户端用正则/关键词列表去枚举
-// （"1"算无意义、"选项1"算有意义……），不如交给模型自己判断——它对语义和意图的理解
-// 远比几条固定规则覆盖的场景全。所以这里不做客户端预过滤，始终正常检索，
-// 靠这条通用指令让模型自己决定这些检索结果值不值得用、要不要提。
+const MAX_TOOL_ROUNDS = 50;
+
+// =====================================================================
+// ① 意图分类（纯规则，不依赖模型质量）
+// =====================================================================
+// 用规则在前端做第一道分类，模型只负责兜底和最终回答。
+// 这样"什么时候该调工具"的控制权在我们手里，不取决于用户配的模型聪不聪明。
+
+const CHAT_PATTERNS = /^(你好|hello|hi|hey|嗨|嗯|ok|好的|谢谢|thanks|你是谁|你能做什么|帮助|help)[\s!！。.？?]*$/i;
+const SELF_QUERY_PATTERNS = /(你(有|能|支持).*(什么|哪些).*(工具|tool|功能|能力)|当前.*(多少|哪些).*(工具|tool)|系统.*(多少|哪些).*(工具|tool))/i;
+const FILE_READ_VERBS = /(读取|打开|查看|看看|看一下|read|cat|show)/i;
+const FILE_NOUNS = /(文件|file|内容|文档|content)/i;
+const FOLLOW_UP_TOOL_PATTERNS = /(你.*(没|没有).*(看到|读|查|看)|不(对|够|完整|准确)|再(看|查|读)一下|自己去(看|读|查)|原始(内容|文件))/;
+
+/**
+ * 分类用户意图，返回以下之一：
+ * - "chat"        : 闲聊/打招呼，不检索不调工具
+ * - "self_query"  : 用户问系统自身的能力/工具，不检索，工具列表可见但不触发调用
+ * - "knowledge"   : 知识查询，走检索，工具按需
+ * - "file_explicit": 用户明确要求读文件，工具优先
+ * - "follow_up"   : 用户对上一轮回答不满意，暗示需要工具补充
+ */
+function classifyIntent(userMessage, history) {
+  const msg = userMessage.trim();
+
+  // 闲聊：很短且匹配打招呼模式，或者纯数字/单字符（选项回复）
+  if (msg.length < 20) {
+    if (CHAT_PATTERNS.test(msg)) return "chat";
+    if (/^\d{1,3}$/.test(msg)) return "chat";
+  }
+
+  // 用户问的是系统自身的能力/工具，不是知识库内容
+  if (SELF_QUERY_PATTERNS.test(msg)) return "self_query";
+
+  // 用户明确要求读文件：包含"读/看"类动词 + "文件/文档"类名词
+  if (FILE_READ_VERBS.test(msg) && FILE_NOUNS.test(msg)) return "file_explicit";
+
+  // 用户对上一轮回答不满意，暗示要读原文
+  // （看最近 2 轮历史里有没有 assistant 回复，配合当前消息的暗示）
+  if (history.length >= 2 && FOLLOW_UP_TOOL_PATTERNS.test(msg)) return "follow_up";
+
+  // 默认走知识查询
+  return "knowledge";
+}
+
+/**
+ * 根据意图 + 检索结果，决定 tool_choice 参数。
+ * 这是协议级控制，不靠提示词——模型想调也调不了。
+ */
+function decideToolChoice(intent, retrievedChunks) {
+  switch (intent) {
+    case "chat":
+      // 闲聊：协议级禁止工具调用
+      return "none";
+
+    case "self_query":
+      // 用户问系统能力：工具列表需要传给 LLM 看（这样它能数有几个工具），
+      // 但 tool_choice: "none" 禁止实际调用
+      return "none";
+
+    case "knowledge":
+      // 知识查询：始终开放工具，让 LLM 自己判断检索片段够不够用。
+      // 片段是语义切分的，经常残缺不全——LLM 应该有能力去读完整文件再做深度分析。
+      return "auto";
+
+    case "follow_up":
+    case "file_explicit":
+      // 用户暗示要读原文 / 明确要求读文件：允许模型使用工具
+      return "auto";
+
+    default:
+      return "auto";
+  }
+}
+
+// =====================================================================
+// ② 系统提示词（职责收窄：只管"怎么回答"，不管"要不要调工具"）
+// =====================================================================
+
 const KB_SYSTEM_PROMPT =
-  "你是用户的个人知识库助手。下面会给你一些从本地知识库检索到的内容——但检索是按语义相似度做的，不代表内容一定真的相关。请你自己判断：如果这些内容确实能帮助回答用户这句话，就正常参考并用 [来源N] 标注；如果用户的输入本身缺乏明确意图（比如只是打招呼、发了个数字、无意义的字符），或者检索到的内容跟用户实际问题对不上，就完全不要提及这些资料、不要说「知识库里没有相关资料」，就当作普通对话直接回应。不确定的内容要明确说不确定，不要编造。";
-// 特意提醒"不要沿用之前提过的知识库检索话术"——不然模型很容易照着对话历史里
-// 自己刚说过的"知识库中没有相关资料"这种话继续接下去，哪怕这一轮系统提示词已经换掉了
+  "你是用户的个人知识库助手。下面会给你一些从本地知识库检索到的片段——这些片段是按语义切分的，经常残缺不全，不代表完整的上下文。" +
+  "请你自己判断：如果这些片段已经足够回答问题，就正常参考并用 [来源N] 标注；如果不够完整，你有文件工具可以读取完整原文，应当主动补充。" +
+  "对于需要深度分析的问题（比如某个功能支持哪些特性、某个模块的设计细节），不要仅凭片段就下结论，应当读取完整文档后再回答。" +
+  "如果用户的输入本身缺乏明确意图（比如只是打招呼、发了个数字），就当作普通对话直接回应。不确定的内容要明确说不确定，不要编造。";
+
 const PLAIN_SYSTEM_PROMPT =
   "你是一个乐于助人、回答准确简洁的助手，直接凭你自己的知识正常回答，不用检索、不用提「知识库」、不要说「没有找到相关资料」这类话——这一轮没有启用检索，就算之前的对话提到过知识库检索，也跟这一轮无关，正常回答就好。";
+
+// =====================================================================
+// ③ 工具提示词（独立出来，只在 tool_choice != "none" 时追加）
+// =====================================================================
+
+const TOOL_GUIDELINES =
+  "你有以下工具可用：read_file（读文件）、list_directory（列目录）、search_files（搜文件）、web_search（网络搜索）、fetch_url（抓取网页）、download_file（下载文件）。\n\n" +
+  "关于检索结果和工具使用的判断原则：\n" +
+  "1. 检索结果是按语义切分的片段，经常残缺不全。不要仅凭片段就下结论。\n" +
+  "2. 当用户问某个功能/模块/特性的具体细节时，如果检索结果里提到了相关文件路径，用 read_file 读取完整文件再回答。\n" +
+  "3. 当检索片段信息不完整、有矛盾、或不足以全面回答时，主动用工具补充，不要直接说「不支持」「没有」「信息不足」。\n" +
+  "4. 用户想要的是基于真实文档的深度分析，不是基于片段的简单复述。\n" +
+  "5. 使用文件工具时，只能使用检索上下文中已出现的路径，不要猜测。\n" +
+  "6. 需要查找本地知识库没有的外部信息时，使用 web_search。";
+
+// =====================================================================
+// ④ 辅助函数
+// =====================================================================
 
 // 只有回答里真的出现过 [来源N] 才把对应引用展示出来——检索到的片段不代表模型真的用了，
 // 没被引用的文件名不该出现在界面上，这也是对着屏幕分享/截图时少一点意外泄露的考虑
@@ -33,6 +127,10 @@ function extractThinkTags(text) {
   };
 }
 
+// =====================================================================
+// ⑤ 主函数
+// =====================================================================
+
 /**
  * @param {object} params
  * @param {Array<{role,content}>} params.history
@@ -43,7 +141,7 @@ function extractThinkTags(text) {
  * @param {object} params.llmConfig
  * @param {object} params.aiClient
  * @param {object} params.mcpManager
- * @param {(event: object) => void} params.onEvent  { type: 'delta'|'reasoning'|'tool-call'|'citations'|'done'|'error', ... }
+ * @param {(event: object) => void} params.onEvent
  */
 async function runAgentTurn(params) {
   const {
@@ -59,40 +157,64 @@ async function runAgentTurn(params) {
     onEvent,
   } = params;
 
+  // ------ 第一步：意图分类（纯规则） ------
+  const intent = classifyIntent(userMessage, history);
+
+  const config = { ...llmConfig, thinkingEnabled };
+  const useTools = mcpEnabled && mcpManager?.hasAnyTool();
+
+  // 闲聊和自我查询不检索
   let retrievedChunks = [];
-  // 要不要检索这件事本身不做客户端预判——检索是本地免费的，值不值得用交给模型自己判断
-  // （见 KB_SYSTEM_PROMPT），比在这里用规则去猜"这句话有没有意义"靠谱得多
-  if (ragEnabled) {
+  if (ragEnabled && intent !== "chat" && intent !== "self_query") {
     const { chunks } = await retrieve(userMessage, aiClient);
     retrievedChunks = chunks;
   }
-  // 只有真的检索到内容，才套"知识库助手"这套人设；开关关了、或者开了但没搜到，
-  // 都退化成普通助手人设，不然模型会照着人设脑补出一句"知识库里没有相关资料"
+
+  // ------ 第二步：组装消息 ------
   const basePrompt = retrievedChunks.length ? KB_SYSTEM_PROMPT : PLAIN_SYSTEM_PROMPT;
-  // 用户自定义的系统提示词是"追加"而不是"替换"——内置提示词里引用标注 [来源N]、
-  // 不确定就说不确定这些是核心行为约定，被用户随手一条自定义提示词整个覆盖掉，
-  // 引用功能会悄悄失效且没有任何提示，比让用户多读一段默认提示词更糟
   const systemContent = systemPrompt ? `${basePrompt}\n\n${systemPrompt}` : basePrompt;
   const messages = [
     { role: "system", content: systemContent },
-    ...history,
   ];
+
+  // 自描述：告诉 LLM 自己是谁、有哪些能力类型。
+  // 具体工具列表已在 API 的 tools 参数里传了，LLM 能看到，不需要在提示词里重复枚举。
+  // 但 self_query 意图下 tool_choice 是 "none"，tools 不会传给 API，
+  // 所以这里动态补上工具名称列表，让 LLM 能回答"你有几个工具"这类问题。
+  if (intent === "self_query" && useTools) {
+    const toolNames = mcpManager.listOpenAiTools().map((t) => {
+      const name = t.function.name.includes("__")
+        ? t.function.name.split("__").slice(1).join("__")
+        : t.function.name;
+      return name;
+    });
+    messages.push({
+      role: "system",
+      content:
+        "你是小怪兽知识库助手，一个本地优先的个人知识库问答客户端。" +
+        "你有以下能力：1) 从用户的本地知识库检索相关内容并回答；2) 通过文件工具读取和浏览本地文件；3) 进行自然语言对话。" +
+        `当前已启用 ${toolNames.length} 个工具：${toolNames.join("、")}。` +
+        "当用户问到你自身的能力、工具、功能时，基于这个列表回答，不需要从知识库检索。",
+    });
+  } else {
+    messages.push({
+      role: "system",
+      content:
+        "你是小怪兽知识库助手，一个本地优先的个人知识库问答客户端。" +
+        "你有以下能力：1) 从用户的本地知识库检索相关内容并回答；2) 通过文件工具读取和浏览本地文件；3) 进行自然语言对话。" +
+        "当用户问到你自身的能力、工具、功能时，基于你实际可用的工具回答，不需要从知识库检索。",
+    });
+  }
+
+  messages.push(...history);
 
   const allCitations = retrievedChunks.length ? buildCitations(retrievedChunks) : [];
   if (retrievedChunks.length) {
     messages.push({
       role: "system",
-      content: `以下是从本地知识库检索到的相关内容，回答时如果用到了，请用 [来源N] 标注对应编号：\n\n${buildContextBlock(
-        retrievedChunks
-      )}`,
+      content: `以下是从本地知识库检索到的相关内容，回答时如果用到了，请用 [来源N] 标注对应编号：\n\n${buildContextBlock(retrievedChunks)}`,
     });
-    // 引用列表不在这里就发给界面——检索到的东西不代表模型真的会用，模型完全可能判断
-    // 这些内容跟问题不相关就一个字都不提。等真正生成完，只有回答里实际出现过 [来源N]
-    // 的那几条才展示出来，没被引用的检索片段不该在界面上露出文件名——这也是隐私考虑。
-  } else {
-    // 这条提醒放在历史消息之后、紧挨着当前问题——不是最前面那条系统提示词的重复，
-    // 是特意利用"越靠近当前问题的指令权重越高"这个特点，压过历史对话里可能已经形成的
-    // "知识库里没有资料"这类回答模式，不让模型照着自己之前说过的话继续接下去
+  } else if (intent !== "chat") {
     messages.push({
       role: "system",
       content:
@@ -101,10 +223,17 @@ async function runAgentTurn(params) {
   }
   messages.push({ role: "user", content: userMessage });
 
-  const config = { ...llmConfig, thinkingEnabled };
-  const useTools = mcpEnabled && mcpManager?.hasAnyTool();
+  // ------ 第三步：根据意图决定工具策略 ------
+  const toolChoice = useTools ? decideToolChoice(intent, retrievedChunks) : "none";
 
-  if (!useTools) {
+  // 如果允许使用工具，在消息末尾追加工具使用指南
+  if (toolChoice !== "none") {
+    messages.push({ role: "system", content: TOOL_GUIDELINES });
+  }
+
+  // ------ 第四步：执行 ------
+  if (toolChoice === "none") {
+    // 纯文本回答（流式）
     let content = "";
     const result = await streamChatCompletion(
       config,
@@ -114,16 +243,12 @@ async function runAgentTurn(params) {
           content += t;
           onEvent({ type: "delta", text: t });
         },
-        // 用户没勾思考模式，就不把思考过程转发给界面——有些模型/网关不管你有没有传
-        // enable_thinking 都会自己带上 reasoning_content，服务端这一道是最终把关的地方
         onReasoningDelta: (t) => {
           if (thinkingEnabled) onEvent({ type: "reasoning", text: t });
         },
       },
       params.signal
     );
-    // 有些模型不走结构化 reasoning 字段，而是直接把 <think> 塞进正文——流式阶段没法预判，
-    // 收尾后再兜底抽一次，保证两种约定都能正确分离思考过程和正文
     let tailReasoning = "";
     if (!result.reasoning && content.includes("<think>")) {
       const { reasoning, content: cleaned } = extractThinkTags(content);
@@ -132,48 +257,47 @@ async function runAgentTurn(params) {
         onEvent({ type: "reasoning-final", text: reasoning, cleanedContent: cleaned });
       }
     }
-    // 模型是不是支持思考，不该靠用户手动点一下"检测"才知道——只要这次真的收到了 reasoning
-    // 内容（不管这次有没有勾思考模式开关，有些模型/网关是默认自带的），就是活生生的证据，
-    // 直接拿这个信号自动判定支持，不用额外发一次专门探测的请求
     const detectedThinkingSupport = Boolean(result.reasoning || tailReasoning);
-    const finalCitations = filterReferencedCitations(content, allCitations);
     onEvent({
       type: "done",
       content,
       reasoning: thinkingEnabled ? result.reasoning || tailReasoning : "",
-      citations: finalCitations,
+      citations: filterReferencedCitations(content, allCitations),
       usage: result.usage,
       detectedThinkingSupport,
     });
     return;
   }
 
-  // MCP 工具调用循环：非流式，多轮，直到模型不再要求调用工具为止
+  // 工具调用循环（非流式，多轮，直到模型不再要求调用工具为止）
   const tools = mcpManager.listOpenAiTools();
+  // 传递给工具的上下文（API key 等配置）
+  const toolCtx = { exaApiKey: params.exaApiKey || "" };
   let rounds = 0;
   let finalMessage = null;
 
   while (rounds < MAX_TOOL_ROUNDS) {
     rounds += 1;
-    const message = await chatCompletion(config, messages, { tools });
+    const message = await chatCompletion(config, messages, { tools, tool_choice: toolChoice });
     if (message.tool_calls && message.tool_calls.length) {
       messages.push(message);
-      for (const call of message.tool_calls) {
-        onEvent({ type: "tool-call", name: call.function.name, args: call.function.arguments });
-        let toolResultText;
-        try {
-          const args = JSON.parse(call.function.arguments || "{}");
-          const result = await mcpManager.callTool(call.function.name, args);
-          toolResultText = JSON.stringify(result);
-        } catch (error) {
-          toolResultText = `工具调用失败: ${error.message}`;
-        }
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content: toolResultText,
-        });
-        onEvent({ type: "tool-result", name: call.function.name, result: toolResultText });
+      const toolResults = await Promise.all(
+        message.tool_calls.map(async (call) => {
+          onEvent({ type: "tool-call", name: call.function.name, args: call.function.arguments });
+          let toolResultText;
+          try {
+            const args = JSON.parse(call.function.arguments || "{}");
+            const result = await mcpManager.callTool(call.function.name, args, toolCtx);
+            toolResultText = JSON.stringify(result);
+          } catch (error) {
+            toolResultText = `工具调用失败: ${error.message}`;
+          }
+          onEvent({ type: "tool-result", name: call.function.name, result: toolResultText });
+          return { tool_call_id: call.id, content: toolResultText };
+        })
+      );
+      for (const result of toolResults) {
+        messages.push({ role: "tool", tool_call_id: result.tool_call_id, content: result.content });
       }
       continue;
     }
@@ -181,7 +305,16 @@ async function runAgentTurn(params) {
     break;
   }
 
-  const content = finalMessage?.content || "（达到最大工具调用轮次，未得到最终答案）";
+  // 达到最大轮次但还没拿到最终回答：追加一条系统消息，要求基于已收集内容生成回答
+  if (!finalMessage) {
+    messages.push({
+      role: "system",
+      content: "已达到工具调用轮次上限。请基于目前已收集到的所有信息（检索结果和工具返回的内容），直接生成最终回答。",
+    });
+    finalMessage = await chatCompletion(config, messages, {});
+  }
+
+  const content = finalMessage?.content || "（无法生成回答）";
   onEvent({ type: "delta", text: content });
   onEvent({
     type: "done",

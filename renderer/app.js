@@ -1,6 +1,31 @@
 /* global marked, DOMPurify, hljs, mermaid, kb, renderMathInElement */
 
-mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+mermaid.initialize({
+  startOnLoad: false,
+  theme: "base",
+  securityLevel: "strict",
+  flowchart: { useMaxWidth: false, htmlLabels: true, curve: "basis" },
+  sequence: { useMaxWidth: false },
+  gantt: { useMaxWidth: false },
+  themeVariables: {
+    primaryColor: "#362f6b",
+    primaryTextColor: "#e8e6f0",
+    primaryBorderColor: "#5a50a0",
+    lineColor: "#8b80d4",
+    secondaryColor: "#241f3a",
+    tertiaryColor: "#1e1933",
+    background: "transparent",
+    mainBkg: "#241f3a",
+    nodeBorder: "#5a50a0",
+    clusterBkg: "transparent",
+    clusterBorder: "#3d3570",
+    titleColor: "#e8e6f0",
+    edgeLabelBackground: "#1a1829",
+    textColor: "#e8e6f0",
+    fontSize: "13px",
+    fontFamily: "'JetBrains Mono', 'Noto Sans SC', sans-serif",
+  },
+});
 
 marked.setOptions({
   breaks: true,
@@ -145,6 +170,7 @@ const state = {
   activeConversationId: null,
   settings: null,
   mcpHasTools: false,
+  toolsEnabled: true,
   thinkingSupported: false,
   sending: false,
   selecting: false,
@@ -495,6 +521,7 @@ let currentAssistantText = "";
 let currentReasoningText = "";
 let currentBubbleRefs = null;
 let currentUserMsgEl = null;
+let currentToolCallsEl = null;
 
 el("messageInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -514,7 +541,7 @@ el("sendBtn").addEventListener("click", () => {
     sendMessage();
   }
 });
-["ragToggle", "mcpToggle", "thinkingToggle"].forEach((id) => {
+["ragToggle", "thinkingToggle"].forEach((id) => {
   el(id).addEventListener("click", () => el(id).classList.toggle("active"));
 });
 
@@ -547,6 +574,7 @@ async function sendMessage() {
   currentRequestId = requestId;
   currentAssistantText = "";
   currentReasoningText = "";
+  currentToolCallsEl = null;
   state.sending = true;
   el("sendBtn").textContent = "终止";
   el("sendBtn").classList.add("stop");
@@ -559,7 +587,7 @@ async function sendMessage() {
     conversationId: state.activeConversationId,
     message: text,
     ragEnabled: el("ragToggle").classList.contains("active"),
-    mcpEnabled: state.mcpHasTools && el("mcpToggle").classList.contains("active"),
+    mcpEnabled: state.toolsEnabled && state.mcpHasTools,
     thinkingEnabled: state.thinkingSupported && el("thinkingToggle").classList.contains("active"),
     requestId,
   });
@@ -592,10 +620,44 @@ kb.chat.onEvent((event) => {
     }
     reasoningEl.querySelector(".reasoning-body").textContent = currentReasoningText;
   } else if (event.type === "tool-call") {
-    const trace = document.createElement("div");
-    trace.className = "tool-trace";
-    trace.textContent = `🔧 调用工具：${event.name}`;
-    currentBubbleRefs.content.insertBefore(trace, bubble);
+    // 首次调用工具时创建一个折叠块，后续同轮的工具调用都追加进去
+    if (!currentToolCallsEl) {
+      currentToolCallsEl = document.createElement("details");
+      currentToolCallsEl.className = "tool-calls";
+      currentToolCallsEl.open = true;
+      currentToolCallsEl.innerHTML = `<summary>调用工具中…</summary><div class="tool-calls-body"></div>`;
+      currentBubbleRefs.content.insertBefore(currentToolCallsEl, bubble);
+    }
+    const entry = document.createElement("div");
+    entry.className = "tool-call-entry";
+    // 去掉前缀（builtin__ / serverName__），只显示工具名
+    const displayName = event.name.includes("__") ? event.name.split("__").slice(1).join("__") : event.name;
+    entry.innerHTML = `<div class="tool-call-name">🔧 ${escapeHtml(displayName)}</div><div class="tool-call-status">执行中…</div>`;
+    entry.dataset.toolName = event.name;
+    currentToolCallsEl.querySelector(".tool-calls-body").appendChild(entry);
+    // 更新 summary 计数
+    const count = currentToolCallsEl.querySelector(".tool-calls-body").children.length;
+    currentToolCallsEl.querySelector("summary").textContent = `调用了 ${count} 个工具`;
+  } else if (event.type === "tool-result") {
+    // 找到对应的 tool-call entry，更新状态
+    if (currentToolCallsEl) {
+      const entries = currentToolCallsEl.querySelector(".tool-calls-body").children;
+      for (const entry of entries) {
+        if (entry.dataset.toolName === event.name) {
+          const statusEl = entry.querySelector(".tool-call-status");
+          try {
+            const parsed = JSON.parse(event.result);
+            // 截取前 200 字符做预览，完整内容太长
+            const preview = typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+            statusEl.textContent = preview.length > 200 ? preview.slice(0, 200) + "…" : preview;
+          } catch {
+            statusEl.textContent = event.result?.slice(0, 200) || "完成";
+          }
+          statusEl.className = "tool-call-result";
+          break;
+        }
+      }
+    }
   } else if (event.type === "done") {
     bubble.classList.remove("empty");
     const doneCitations = event.citations || [];
@@ -956,6 +1018,46 @@ new ResizeObserver(() => {
 // ---------------- 设置视图 ----------------
 let mcpServersDraft = {};
 
+const BUILTIN_TOOL_LABELS = {
+  read_file: { icon: "📄", label: "读取文件", hint: "读取指定文件的完整内容" },
+  list_directory: { icon: "📁", label: "浏览目录", hint: "列出目录下的文件和子目录" },
+  search_files: { icon: "🔍", label: "搜索文件", hint: "按关键词在文件中全文搜索" },
+  web_search: { icon: "🌐", label: "网络搜索", hint: "在互联网上搜索信息，用于调研任务" },
+  fetch_url: { icon: "🔗", label: "抓取网页", hint: "获取指定 URL 的网页内容" },
+  download_file: { icon: "⬇️", label: "下载文件", hint: "下载文件到本地沙箱目录（只存不执行）" },
+};
+
+async function renderBuiltinToolList() {
+  const list = el("builtinToolList");
+  list.innerHTML = "";
+  let tools;
+  try {
+    tools = await kb.builtinTools.list();
+  } catch {
+    list.innerHTML = `<div class="hint">无法加载内置工具列表</div>`;
+    return;
+  }
+  for (const tool of tools) {
+    const meta = BUILTIN_TOOL_LABELS[tool.name] || { icon: "🔧", label: tool.name, hint: "" };
+    const item = document.createElement("div");
+    item.className = "builtin-tool-item";
+    item.innerHTML = `
+      <div class="builtin-tool-info">
+        <div class="builtin-tool-name">${meta.icon} ${escapeHtml(meta.label)}</div>
+        <div class="meta">${escapeHtml(meta.hint)}</div>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" ${tool.enabled ? "checked" : ""} />
+        <span class="toggle-slider"></span>
+      </label>`;
+    item.querySelector("input").addEventListener("change", async (e) => {
+      const updated = await kb.builtinTools.toggle(tool.name, e.target.checked);
+      updateToolAvailability(await kb.mcp.hasTools());
+    });
+    list.appendChild(item);
+  }
+}
+
 function renderHeaderRows(headers) {
   const container = el("customHeaderRows");
   container.innerHTML = "";
@@ -1011,7 +1113,7 @@ function renderMcpServerList() {
       renderMcpServerList();
       await kb.settings.update({ mcpServers: mcpServersDraft });
       await kb.mcp.reconnect();
-      updateMcpToggleVisibility(await kb.mcp.hasTools());
+      updateToolAvailability(await kb.mcp.hasTools());
     });
     list.appendChild(item);
   });
@@ -1039,7 +1141,19 @@ el("addMcpServerBtn").addEventListener("click", async () => {
   mcpResult.textContent = thisResult?.ok
     ? `已连接，发现 ${thisResult.toolCount} 个工具`
     : `连接失败：${thisResult?.error || "未知错误"}`;
-  updateMcpToggleVisibility(await kb.mcp.hasTools());
+  updateToolAvailability(await kb.mcp.hasTools());
+});
+
+el("toolsMasterToggle").addEventListener("change", async (e) => {
+  state.toolsEnabled = e.target.checked;
+  await kb.settings.update({ toolsEnabled: e.target.checked });
+});
+
+el("saveExaBtn").addEventListener("click", async () => {
+  const key = el("exaApiKey").value.trim();
+  await kb.settings.update({ exaApiKey: key });
+  el("exaSaveHint").textContent = key ? "已保存，搜索将使用 Exa AI" : "已保存，搜索将使用 DuckDuckGo";
+  setTimeout(() => (el("exaSaveHint").textContent = ""), 3000);
 });
 
 function setModelPickerMode(useSelect) {
@@ -1098,9 +1212,17 @@ async function refreshSettingsView() {
 
   mcpServersDraft = { ...(settings.mcpServers || {}) };
   renderMcpServerList();
+  await renderBuiltinToolList();
+
+  // 工具总开关
+  state.toolsEnabled = settings.toolsEnabled !== false; // 默认开启
+  el("toolsMasterToggle").checked = state.toolsEnabled;
+
+  // Exa API key
+  el("exaApiKey").value = settings.exaApiKey || "";
 
   const mcpHasTools = await kb.mcp.hasTools();
-  updateMcpToggleVisibility(mcpHasTools);
+  updateToolAvailability(mcpHasTools);
 
   if (settings.llm.baseUrl && settings.llm.apiKey) refreshModelList();
   refreshTokenUsage();
@@ -1152,10 +1274,8 @@ el("saveSystemPromptBtn").addEventListener("click", async () => {
   setTimeout(() => (el("systemPromptSaveHint").textContent = ""), 2000);
 });
 
-function updateMcpToggleVisibility(hasTools) {
+function updateToolAvailability(hasTools) {
   state.mcpHasTools = hasTools;
-  el("mcpToggle").hidden = !hasTools;
-  if (!hasTools) el("mcpToggle").classList.remove("active");
 }
 function updateThinkingToggleVisibility(supported) {
   state.thinkingSupported = supported;
@@ -1195,7 +1315,7 @@ kb.app.onShowOnboarding(() => {
   await maybeShowOnboarding();
   await loadConversations();
   const hasTools = await kb.mcp.hasTools();
-  updateMcpToggleVisibility(hasTools);
+  updateToolAvailability(hasTools);
   // 思考模式支不支持这个探测结果是存过的，启动时直接读出来用，不用每次都重新点一次检测按钮
   const settings = await kb.settings.get();
   updateThinkingToggleVisibility(!!settings.llm.thinkingSupported);

@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld("kb", {
     reconnect: () => ipcRenderer.invoke("mcp:reconnect"),
     hasTools: () => ipcRenderer.invoke("mcp:hasTools"),
   },
+  builtinTools: {
+    list: () => ipcRenderer.invoke("builtinTools:list"),
+    toggle: (name, enabled) => ipcRenderer.invoke("builtinTools:toggle", { name, enabled }),
+  },
   llm: {
     probeThinking: (config) => ipcRenderer.invoke("llm:probeThinking", config),
     listModels: (config) => ipcRenderer.invoke("llm:listModels", config),

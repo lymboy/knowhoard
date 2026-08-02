@@ -17,6 +17,16 @@ const DEFAULTS = {
   autoSyncOnLaunch: true,
   autoSyncIntervalMinutes: 20,
   hasSeenOnboarding: false,
+  toolsEnabled: true,
+  exaApiKey: "",
+  builtinTools: {
+    read_file: true,
+    list_directory: true,
+    search_files: true,
+    web_search: true,
+    fetch_url: true,
+    download_file: true,
+  },
 };
 
 let settingsPath = null;

@@ -1,8 +1,13 @@
 /**
- * MCP（Model Context Protocol）客户端管理器。
- * 配置形式沿用 Claude Desktop 的 mcpServers 约定（大家最熟悉的格式）：
- *   { "serverName": { "command": "npx", "args": [...], "env": {...} } }
- * 目前只支持 stdio 方式起本地 MCP server，这是社区里最常见、最好排查问题的接入方式。
+ * MCP（Model Context Protocol）客户端管理器 + 内置工具管理。
+ *
+ * 两类工具统一由这个类管理：
+ * - 外部 MCP server：用户在设置里手动添加，走 stdio 协议连接
+ * - 内置工具（read_file / list_directory / search_files）：代码里定义，
+ *   在设置里跟 MCP server 放一起展示，用户可以逐个开关
+ *
+ * 两类工具对 agentLoop 来说没有区别——listOpenAiTools() 统一返回，
+ * callTool() 统一分发，调用方不需要知道底层是 MCP 还是内置。
  */
 let Client, StdioClientTransport;
 
@@ -15,10 +20,52 @@ async function loadSdk() {
   }
 }
 
+const BUILTIN_PREFIX = "builtin";
+
 class McpManager {
   constructor() {
-    this.clients = new Map(); // serverName -> { client, tools }
+    this.clients = new Map();       // serverName -> { client, tools }
+    this.builtinDefs = new Map();   // toolName -> tool definition (from builtinTools.js)
+    this.builtinEnabled = new Map(); // toolName -> boolean
   }
+
+  // ---------- 内置工具管理 ----------
+
+  /** 注册内置工具定义，调用一次即可（启动时从 index.js 调） */
+  setBuiltinTools(tools) {
+    this.builtinDefs.clear();
+    for (const tool of tools) {
+      this.builtinDefs.set(tool.name, tool);
+    }
+  }
+
+  /** 从 settings 恢复每个内置工具的开关状态；没有存过就全部默认开启 */
+  restoreBuiltinState(enabledMap) {
+    for (const name of this.builtinDefs.keys()) {
+      // enabledMap 为 undefined（首次启动，settings 里没有 builtinTools 字段）时全部开启
+      this.builtinEnabled.set(name, enabledMap ? (enabledMap[name] !== false) : true);
+    }
+  }
+
+  toggleBuiltinTool(name, enabled) {
+    if (!this.builtinDefs.has(name)) return;
+    this.builtinEnabled.set(name, !!enabled);
+  }
+
+  /** 返回设置面板需要的列表：每个内置工具的名称、描述、是否启用 */
+  listBuiltinToolInfo() {
+    const result = [];
+    for (const [name, def] of this.builtinDefs.entries()) {
+      result.push({
+        name,
+        description: def.description,
+        enabled: this.builtinEnabled.get(name) ?? true,
+      });
+    }
+    return result;
+  }
+
+  // ---------- MCP server 管理 ----------
 
   async connectAll(mcpServers = {}) {
     await this.disconnectAll();
@@ -58,15 +105,29 @@ class McpManager {
     this.clients.clear();
   }
 
-  /** 汇总所有已连接 server 的工具，转成 OpenAI function-calling 的 tools 格式 */
+  // ---------- 统一工具接口 ----------
+
+  /** 汇总所有工具（内置 + MCP），转成 OpenAI function-calling 的 tools 格式 */
   listOpenAiTools() {
     const tools = [];
+    // 内置工具
+    for (const [name, def] of this.builtinDefs.entries()) {
+      if (!this.builtinEnabled.get(name)) continue;
+      tools.push({
+        type: "function",
+        function: {
+          name: `${BUILTIN_PREFIX}__${name}`,
+          description: def.description,
+          parameters: def.inputSchema,
+        },
+      });
+    }
+    // MCP 工具
     for (const [serverName, { tools: serverTools }] of this.clients.entries()) {
       for (const tool of serverTools) {
         tools.push({
           type: "function",
           function: {
-            // 前缀 server 名，避免多个 MCP server 出现同名工具冲突
             name: `${serverName}__${tool.name}`,
             description: tool.description || "",
             parameters: tool.inputSchema || { type: "object", properties: {} },
@@ -77,18 +138,32 @@ class McpManager {
     return tools;
   }
 
-  async callTool(qualifiedName, args) {
+  async callTool(qualifiedName, args, ctx) {
     const sepIndex = qualifiedName.indexOf("__");
-    const serverName = qualifiedName.slice(0, sepIndex);
+    const prefix = qualifiedName.slice(0, sepIndex);
     const toolName = qualifiedName.slice(sepIndex + 2);
-    const entry = this.clients.get(serverName);
-    if (!entry) throw new Error(`MCP server 未连接: ${serverName}`);
+
+    // 内置工具
+    if (prefix === BUILTIN_PREFIX) {
+      const def = this.builtinDefs.get(toolName);
+      if (!def) throw new Error(`未知的内置工具: ${toolName}`);
+      return await def.handler(args, ctx);
+    }
+
+    // MCP 工具
+    const entry = this.clients.get(prefix);
+    if (!entry) throw new Error(`MCP server 未连接: ${prefix}`);
     const result = await entry.client.callTool({ name: toolName, arguments: args });
     return result;
   }
 
   hasAnyTool() {
-    return this.listOpenAiTools().length > 0;
+    // 内置工具有任何一个启用的
+    for (const enabled of this.builtinEnabled.values()) {
+      if (enabled) return true;
+    }
+    // MCP 工具有任何一个连接的
+    return this.clients.size > 0;
   }
 }
 
