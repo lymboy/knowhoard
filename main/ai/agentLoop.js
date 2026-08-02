@@ -243,9 +243,10 @@ async function runAgentTurn(params) {
 
   const allCitations = retrievedChunks.length ? buildCitations(retrievedChunks) : [];
   if (retrievedChunks.length) {
+    // 明确告诉模型来源编号范围，避免模型幻觉标出不存在的编号（如只有 7 个来源却标 [来源9]）
     messages.push({
       role: "system",
-      content: `以下是从本地知识库检索到的相关内容，回答时如果用到了，请用 [来源N] 标注对应编号：\n\n${buildContextBlock(retrievedChunks)}`,
+      content: `以下是从本地知识库检索到的相关内容，回答时如果用到了，请用 [来源N] 标注对应编号：\n\n${buildContextBlock(retrievedChunks)}\n\n以上共 ${allCitations.length} 个来源，编号范围是 [来源1] 到 [来源${allCitations.length}]，不要标注超过 [来源${allCitations.length}] 的编号。`,
     });
   } else if (intent !== "chat") {
     messages.push({
@@ -308,6 +309,7 @@ async function runAgentTurn(params) {
   const toolCtx = { exaApiKey: params.exaApiKey || "" };
   let rounds = 0;
   let finalMessage = null;
+  let streamedFinal = false; // 最终回答是否已流式逐 token 发出（流式路径设 true，避免下面重复发整个 content）
 
   // 工具读取过的来源（read_file / fetch_url）——动态加入引用编号体系，
   // 不然 LLM 基于工具读到的内容回答时，[来源N] 会对到检索 chunk 列表里的错误文档上
@@ -379,18 +381,41 @@ async function runAgentTurn(params) {
       // 编号接在检索 chunk 的编号后面，LLM 下一轮生成时就知道 [来源N] 到底指谁
       if (toolReadSources.length > injectedSourceCount) {
         const base = allCitations.length;
-        const lines = toolReadSources.slice(injectedSourceCount).map((s, i) => {
+        const newSources = toolReadSources.slice(injectedSourceCount);
+        const lines = newSources.map((s, i) => {
           return `[来源${base + injectedSourceCount + i + 1}] ${s.filename}（${s.path}）`;
         });
+        const maxNum = base + toolReadSources.length;
         messages.push({
           role: "system",
-          content: `你刚通过工具读取了以下内容，回答时如引用这些内容，请用对应编号标注：\n${lines.join("\n")}`,
+          content: `你刚通过工具读取了以下内容，回答时如引用这些内容，请用对应编号标注：\n${lines.join("\n")}\n\n加上之前的检索来源，现在共有 ${maxNum} 个来源，编号范围是 [来源1] 到 [来源${maxNum}]，不要标注超过 [来源${maxNum}] 的编号。`,
         });
         injectedSourceCount = toolReadSources.length;
       }
       continue;
     }
-    finalMessage = message;
+    // 模型不再调工具 → 生成最终回答。改用流式调用，逐 token 发 delta，
+    // 避免之前一次性把整个 content 发出导致前端"一下蹦"。
+    // 之前是 chatCompletion 非流式拿到完整 content，再 onEvent(delta, 整个content) 一次性发——
+    // 工具循环结束后正文一下蹦出，没有打字机效果。这里重新流式调一次（messages 已含工具结果，
+    // 不传 tools，纯生成回答），逐 token 发 delta，前端逐字渲染。
+    let streamContent = "";
+    let streamReasoning = "";
+    const streamResult = await streamChatCompletion(
+      config,
+      messages,
+      {
+        onDelta: (t) => { streamContent += t; onEvent({ type: "delta", text: t }); },
+        onReasoningDelta: (t) => {
+          streamReasoning += t;
+          if (thinkingEnabled) onEvent({ type: "reasoning", text: t });
+        },
+      },
+      params.signal
+    );
+    finalMessage = { content: streamResult.content || streamContent, reasoning: streamResult.reasoning || streamReasoning, usage: streamResult.usage };
+    if (thinkingEnabled && streamReasoning) allRoundReasoning += (allRoundReasoning ? "\n\n" : "") + streamReasoning;
+    streamedFinal = true; // 流式已逐 token 发了 delta，下面不再一次性发整个 content
     break;
   }
 
@@ -410,7 +435,9 @@ async function runAgentTurn(params) {
   }
 
   const content = finalMessage?.content || "（无法生成回答）";
-  onEvent({ type: "delta", text: content });
+  // 流式路径已逐 token 发过 delta，这里不再一次性发（否则前端 content 会叠加翻倍）。
+  // 只有非流式兜底路径（MAX_ROUNDS 超限走 chatCompletion）才需要一次性发整个 content
+  if (!streamedFinal) onEvent({ type: "delta", text: content });
   // 引用列表 = 检索 chunk + 工具读取的来源，编号连续，
   // 跟注入给 LLM 的「编号 → 文件」映射表严格一致
   const combinedCitations = [...allCitations, ...toolReadSources];
