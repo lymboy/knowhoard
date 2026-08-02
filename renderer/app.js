@@ -1,3 +1,4 @@
+import "./lib-globals.js";
 /* global marked, DOMPurify, hljs, mermaid, kb, renderMathInElement */
 
 // Mermaid 主题跟随当前页面主题（亮/暗），不能写死深色——

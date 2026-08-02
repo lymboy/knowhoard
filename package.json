@@ -7,10 +7,10 @@
   "license": "MIT",
   "main": "main/index.js",
   "scripts": {
-    "build:vendor": "node scripts/build-vendor.js",
-    "prestart": "npm run build:vendor",
+    "build:renderer": "vite build",
+    "prestart": "npm run build:renderer",
     "start": "electron .",
-    "predist": "npm run build:vendor",
+    "predist": "npm run build:renderer",
     "dist": "electron-builder --mac dmg"
   },
   "dependencies": {
@@ -49,7 +49,7 @@
     "productName": "小怪兽知识库",
     "files": [
       "main/**/*",
-      "renderer/**/*",
+      "renderer/dist/**/*",
       "build/**/*",
       "package.json"
     ],

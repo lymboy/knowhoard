@@ -4,22 +4,15 @@
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self';" />
 <title>小怪兽知识库</title>
-<link rel="stylesheet" href="../node_modules/github-markdown-css/github-markdown.css" />
-<link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css" />
+<!-- 第三方样式（github-markdown-css / katex）由 lib-globals.js import，vite 打包；
+     styles.css 是本项目样式，vite 直接处理 -->
 <link rel="stylesheet" href="styles.css" />
-<!-- TDesign 设计语言：token（颜色/字号/圆角/间距，含亮暗）+ chat 组件样式。
-     原样引入不修改，TDesign 升级时重拷即可。组件 DOM 套 .t-chat__* class 复用这套视觉。
-     主题：我们 data-theme 切换时同步设 theme-mode，让 --td-* token 跟随亮暗 -->
-<link rel="stylesheet" href="vendor/tdesign-tokens.css" />
-<link rel="stylesheet" href="vendor/tdesign-chat.css" />
-<!-- Vue 组件 scoped 样式（build-vue 合并产物） -->
-<link rel="stylesheet" href="vendor/components.css" />
 </head>
 <body>
   <div id="onboardingOverlay" class="onboarding-overlay" hidden>
     <div class="onboarding-card">
       <div class="onboarding-header">
-        <img src="../build/mascot-cropped.png" alt="小怪兽" class="onboarding-mascot" />
+        <img src="./mascot-cropped.png" alt="小怪兽" class="onboarding-mascot" />
         <h1>你好，我是小怪兽 👋</h1>
         <p class="onboarding-sub">这是一个完全跑在你电脑本地的个人知识库问答客户端</p>
       </div>
@@ -61,7 +54,7 @@
   <div id="app">
     <nav class="sidebar">
       <div class="brand">
-        <img src="../build/icon.png" alt="logo" class="brand-logo" />
+        <img src="./icon.png" alt="logo" class="brand-logo" />
         <div class="brand-text">
           <div class="brand-title">小怪兽知识库</div>
           <div class="brand-sub">本地优先 · 隐私可靠</div>
@@ -265,14 +258,9 @@
     </main>
   </div>
 
-  <script src="../node_modules/marked/lib/marked.umd.js"></script>
-  <script src="../node_modules/dompurify/dist/purify.min.js"></script>
-  <script src="vendor/hljs.bundle.js"></script>
-  <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>
-  <script src="../node_modules/katex/dist/katex.min.js"></script>
-  <script src="../node_modules/katex/dist/contrib/auto-render.min.js"></script>
-  <script src="app.js"></script>
-  <!-- Vue 渲染层入口（ESM，defer）。挂 AiStatus 等 Vue 组件，接 AI 状态到 store -->
+  <script type="module" src="app.js"></script>
+  <!-- Vue 渲染层入口（ESM）。挂 AiStatus 等 Vue 组件，接 AI 状态到 store。
+       V2：vite 编译 .vue SFC，组件实例链正常，TDesign 可原生 import -->
   <script type="module" src="app-vue.js"></script>
 </body>
 </html>

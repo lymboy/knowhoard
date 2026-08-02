@@ -39,8 +39,8 @@
 <script>
 // Options API：methods/computed Vue 直接挂实例，render 的 _ctx 可访问，响应式正常。
 import { renderMarkdown, highlightAndRenderDiagrams } from "../../markdown.js";
-import ToolCallsBlock from "./ToolCallsBlock.js";
-import CitationChips from "./CitationChips.js";
+import ToolCallsBlock from "./ToolCallsBlock.vue";
+import CitationChips from "./CitationChips.vue";
 
 export default {
   components: { ToolCallsBlock, CitationChips },
@@ -55,7 +55,7 @@ export default {
       return window.__STORE;
     },
     avatarSrc() {
-      return this.msg.role === "user" ? "../build/user-avatar.png" : "../build/mascot-cropped.png";
+      return this.msg.role === "user" ? "./user-avatar.png" : "./mascot-cropped.png";
     },
     selected() {
       return !!this.msg.id && this.store.selectedMessageIds.has(this.msg.id);

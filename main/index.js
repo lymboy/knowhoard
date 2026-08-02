@@ -132,7 +132,7 @@ function createWindow() {
       sandbox: false,
     },
   });
-  mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  mainWindow.loadFile(path.join(__dirname, "..", "renderer", "dist", "index.html"));
   // 仅在显式调试时（KB_DEBUG=1）自动打开 DevTools。生产/正常启动不开，避免用户启动还弹控制台。
   if (process.env.KB_DEBUG === "1") {
     mainWindow.webContents.once("dom-ready", () => mainWindow.webContents.openDevTools({ mode: "detach" }));

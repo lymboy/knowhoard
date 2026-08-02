@@ -6,7 +6,7 @@
 // 然后这个 module 脚本执行（module 默认 defer）。app.js 初始化时 window.kbStore 还没挂上，
 // 所以 app.js 里要用 store 的地方都走 window.kbStore?.xxx（可选链，挂上前后都能跑）。
 
-import { createApp } from "./vendor/vue.runtime.js";
+import { createApp } from "vue";
 import {
   setKb,
   store,
@@ -20,9 +20,10 @@ import {
   stopSending,
 } from "./store.js";
 import { initMarkdown } from "./markdown.js";
-import AiStatus from "./vendor/components/AiStatus.js";
-import ConversationList from "./vendor/components/ConversationList.js";
-import ChatView from "./vendor/components/ChatView.js";
+import AiStatus from "./vendor-src/components/AiStatus.vue";
+import ConversationList from "./vendor-src/components/ConversationList.vue";
+import ChatView from "./vendor-src/components/ChatView.vue";
+import "./lib-globals.js";
 
 // 注入 IPC 桥
 setKb(window.kb);

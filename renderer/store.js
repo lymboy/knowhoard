@@ -6,7 +6,7 @@
 // 这个模块被 app.js（经典脚本，通过 window.kbStore 桥接）和 app-vue.js（ESM）共用。
 // Vue 组件 import 它的 reactive 对象；app.js 通过 window.kbStore 暴露的方法读写。
 
-import { reactive } from "./vendor/vue.runtime.js";
+import { reactive } from "vue";
 
 export const store = reactive({
   // 视图状态（视图切换仍由 app.js 持有，这里只是镜像供 Vue 判断可见性）

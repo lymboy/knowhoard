@@ -26,8 +26,8 @@
 // render 里 _ctx.xxx 一定可访问、响应式追踪正常。之前 <script setup> 手拼产物在
 // setup 返回值与 render 上下文的关联上缺胶水，导致 _ctx 拿不到暴露值、响应式失效。
 
-import MessageBubble from "./MessageBubble.js";
-import Composer from "./Composer.js";
+import MessageBubble from "./MessageBubble.vue";
+import Composer from "./Composer.vue";
 
 const NEAR_BOTTOM = 80;
 const LOAD_MORE_THRESHOLD = 80;
