@@ -1184,6 +1184,11 @@ el("onboardingDismiss").addEventListener("click", async () => {
   el("onboardingOverlay").hidden = true;
   await kb.settings.update({ hasSeenOnboarding: true });
 });
+// 菜单栏"帮助 > 关于"手动触发重看引导弹窗——跳过 hasSeenOnboarding 判断，
+// 这是用户主动要看，不是首次启动那次自动弹出
+kb.app.onShowOnboarding(() => {
+  el("onboardingOverlay").hidden = false;
+});
 
 // ---------------- 初始化 ----------------
 (async function init() {

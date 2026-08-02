@@ -72,4 +72,11 @@ contextBridge.exposeInMainWorld("kb", {
       return () => ipcRenderer.removeListener("ai:status", listener);
     },
   },
+  app: {
+    onShowOnboarding: (cb) => {
+      const listener = () => cb();
+      ipcRenderer.on("show-onboarding", listener);
+      return () => ipcRenderer.removeListener("show-onboarding", listener);
+    },
+  },
 });

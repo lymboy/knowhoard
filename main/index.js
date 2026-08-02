@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, dialog, screen } = require("electron");
+const { app, BrowserWindow, Menu, shell, screen } = require("electron");
 const path = require("path");
 const os = require("os");
 
@@ -69,14 +69,12 @@ function buildMenu() {
       submenu: [
         {
           label: "关于小怪兽的个人知识库",
+          // 原生 dialog.showMessageBox 太干瘪了，直接复用首次启动那个做好的引导弹窗，
+          // 视觉上跟应用本身一致，内容也更完整（功能介绍 + 隐私承诺），不用维护两份文案
           click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: "info",
-              title: "关于",
-              message: APP_NAME,
-              detail: AUTHOR_BLURB,
-              buttons: ["好的"],
-            });
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("show-onboarding");
+            }
           },
         },
         {

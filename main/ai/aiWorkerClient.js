@@ -17,7 +17,6 @@ const { randomUUID } = require("crypto");
 const IDLE_UNLOAD_MS = 10 * 60 * 1000; // 空闲 10 分钟只是"有资格被考虑"，不是"该卸载"
 const CHECK_INTERVAL_MS = 60 * 1000; // 每分钟检查一次
 const CPU_LOAD_THRESHOLD = 0.85; // 系统负载/核心数，要接近"跑满"这个量级才算数，平时的中等负载不该触发
-const FREE_MEM_RATIO_THRESHOLD = 0.15; // 剩余内存低于 15% 才算真的紧张
 const SUSTAINED_CHECKS_REQUIRED = 3; // 连续 3 次检查（约 3 分钟）都判定"忙"，才真正卸载——防止瞬时毛刺误杀
 
 class AiWorkerClient {
@@ -107,10 +106,13 @@ class AiWorkerClient {
 
     const cpuCount = os.cpus().length || 1;
     // 用 5 分钟平均负载而不是 1 分钟的，本身就比瞬时值更抗毛刺；
-    // 再要求连续多次检查都判定"忙"，双重过滤掉短暂的负载尖峰，避免误杀
+    // 再要求连续多次检查都判定"忙"，双重过滤掉短暂的负载尖峰，避免误杀。
+    // 之前这里还叠加了一个"剩余内存占比"判断，但 os.freemem() 在 macOS 上是个假信号——
+    // macOS 会故意把大部分空闲内存挪去做磁盘缓存、不主动释放，freeRatio 常年个位数百分比，
+    // 跟机器实际忙不忙没关系，结果是空闲一满 10 分钟这条内存判断必然为真，等于每次都会卸载，
+    // 跟"CPU 不高就不该卸载"这个要求完全对不上。只保留 CPU 负载这一个真正有效的信号。
     const load5m = os.loadavg()[1] / cpuCount;
-    const freeRatio = os.freemem() / os.totalmem();
-    const busy = load5m > CPU_LOAD_THRESHOLD || freeRatio < FREE_MEM_RATIO_THRESHOLD;
+    const busy = load5m > CPU_LOAD_THRESHOLD;
 
     this.consecutiveBusyChecks = busy ? this.consecutiveBusyChecks + 1 : 0;
     if (this.consecutiveBusyChecks < SUSTAINED_CHECKS_REQUIRED) return;
@@ -121,7 +123,7 @@ class AiWorkerClient {
     this.loaded = false;
     this.onStatusChange({
       phase: "unloaded",
-      reason: { idleFor, load5m, freeRatio },
+      reason: { idleFor, load5m },
     });
   }
 

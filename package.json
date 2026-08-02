@@ -1,7 +1,7 @@
 {
   "name": "knowhoard",
   "productName": "小怪兽知识库",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "本地优先的个人知识库问答客户端：本地 embedding + 本地重排 + 自定义 OpenAI 兼容 LLM，支持 Obsidian vault 连接器。",
   "private": true,
   "license": "MIT",
