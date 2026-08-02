@@ -315,13 +315,16 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         `SELECT m.*, f.id as fav_id FROM messages m
          LEFT JOIN favorites f ON f.message_id = m.id
          WHERE ${where}
-         ORDER BY m.created_at DESC
+         ORDER BY m.created_at DESC, m.rowid DESC
          LIMIT ?`
       )
       .all(...params);
 
     const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit).reverse(); // 拿到的是"最新的 limit 条"倒序，反转回正序（旧→新）
+    // 拿到的是"最新的 limit 条"倒序，反转回正序（旧→新）。
+    // 同毫秒 created_at（流式落库时 user 和占位 assistant 可能同毫秒）用 rowid 兜底——
+    // rowid 按插入顺序递增，reverse 后同毫秒也是插入顺序，保证 user 在 assistant 前，不乱序
+    const page = rows.slice(0, limit).reverse();
     return {
       hasMore,
       messages: page.map((r) => ({
@@ -423,16 +426,18 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
   async function generateConversationTitle(conversationId, send) {
     try {
       const conv = db.prepare(`SELECT title FROM conversations WHERE id = ?`).get(conversationId);
+      console.log("[genTitle] conv=", !!conv, "title=", conv && conv.title);
       if (!conv) return;
       // 用户手动改过（不是"新会话"也不是首条截断占位）就不覆盖
       const isPlaceholder = conv.title === "新会话" || conv.title.length >= 24;
-      if (!isPlaceholder) return;
+      if (!isPlaceholder) { console.log("[genTitle] skip: not placeholder"); return; }
 
       // 取第一条 user + 第一条 assistant（够总结标题了，不必喂全部历史省 token）
       const rows = db.prepare(
         `SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user','assistant') ORDER BY created_at ASC LIMIT 2`
       ).all(conversationId);
       const turns = rows.map((r) => ({ role: r.role, content: decompressText(r.content) || "" }));
+      console.log("[genTitle] turns=", turns.length, "userLen=", turns[0]?.content.length, "aiLen=", turns[1]?.content.length);
       if (turns.length < 2) return; // 还没有完整一轮问答，不生成
 
       const settings = getSettings();
@@ -443,9 +448,11 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
       ];
       const result = await chatCompletion({ ...settings.llm, thinkingEnabled: false }, promptMessages, {});
       const title = (result.content || "").trim().split("\n")[0].slice(0, 24);
+      console.log("[genTitle] LLM 生成标题:", JSON.stringify(title));
       if (!title) return;
       db.prepare(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`).run(title, Date.now(), conversationId);
       send({ type: "conversation:renamed", conversationId, title });
+      console.log("[genTitle] 已发 conversation:renamed 事件");
     } catch (e) {
       // 标题生成失败不影响主流程，静默
       console.error("[generateConversationTitle] error", e.message);

@@ -149,6 +149,7 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  font-size: 13px; /* 会话列表标题比正文小一号，MacBook 内屏看着不挤 */
 }
 .title-edit-input {
   flex: 1;

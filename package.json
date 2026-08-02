@@ -16,6 +16,7 @@
   "dependencies": {
     "@lancedb/lancedb": "^0.33.0",
     "@modelcontextprotocol/sdk": "^1.11.0",
+    "@tdesign-vue-next/chat": "^0.6.0",
     "@xenova/transformers": "^2.17.2",
     "apache-arrow": "^18.1.0",
     "better-sqlite3": "^11.10.0",
@@ -30,6 +31,7 @@
     "marked": "^15.0.7",
     "mermaid": "^11.4.1",
     "pdf-parse": "^1.1.1",
+    "tdesign-vue-next": "^1.20.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

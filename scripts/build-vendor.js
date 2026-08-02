@@ -17,12 +17,13 @@ esbuild
   })
   .then(() => {
     console.log("[build-vendor] hljs.bundle.js 生成完成");
-    // 编译 .vue 组件（独立脚本，避免 esbuild 这边报错被吞）
-    const r = spawn(process.execPath, [path.join(__dirname, "build-vue.js")], {
-      stdio: "inherit",
-    });
-    r.on("exit", (code) => {
+    // 预编译 vue-advanced-chat（整套对话 UI 组件）成免构建可用的 ESM bundle
+    const r1 = spawn(process.execPath, [path.join(__dirname, "build-chat-ui.js")], { stdio: "inherit" });
+    r1.on("exit", (code) => {
       if (code !== 0) process.exit(code);
+      // 编译 .vue 组件
+      const r2 = spawn(process.execPath, [path.join(__dirname, "build-vue.js")], { stdio: "inherit" });
+      r2.on("exit", (c2) => { if (c2 !== 0) process.exit(c2); });
     });
   })
   .catch((err) => {

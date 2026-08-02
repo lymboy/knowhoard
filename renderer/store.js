@@ -132,16 +132,13 @@ export async function loadOlderMessages() {
 export async function startSending(text, opts) {
   if (store.sending) return;
   if (!store.activeConversationId) {
-    store.activeConversationId = await getKb().conversations.create(text.slice(0, 24));
+    // 新会话用占位标题"新会话"创建，不截断首条消息当标题——首条截断会伪装成"像标题"，
+    // 导致后端 AI 标题生成（generateConversationTitle）的 isPlaceholder 判断误以为用户改过而跳过。
+    // 保持"新会话"占位，让 AI 在一轮问答后生成摘要标题接管。
+    store.activeConversationId = await getKb().conversations.create("新会话");
     await loadConversations();
-  } else {
-    // "+ 新建会话"创建的会话标题是占位符"新会话"，第一次发消息时换成有意义标题
-    const conv = store.conversations.find((c) => c.id === store.activeConversationId);
-    if (conv && conv.title === "新会话") {
-      await getKb().conversations.rename(conv.id, text.slice(0, 24));
-      loadConversations();
-    }
   }
+  // 不再在首次发消息时用首条截断改名——交给 AI 标题生成
 
   // 用户消息
   store.messages.push({ id: "", role: "user", content: text, reasoning: "", citations: [], toolCalls: [], favorited: false, streaming: false });
@@ -157,11 +154,10 @@ export async function startSending(text, opts) {
   await getKb().chat.send({
     conversationId: store.activeConversationId,
     message: text,
+    // 检索开关只控制 RAG 向量检索，不控制工具。工具是否可用由工具总开关（toolsEnabled）决定，
+    // 两者独立——关检索不代表禁用工具（工具能读文件是独立能力，不该被检索开关连带关掉）。
     ragEnabled: opts.ragEnabled,
-    // 检索开关关闭时，工具也不启用：工具能自己 list_directory/read_file 翻本地知识库文件，
-    // 关 RAG 但留工具的话，LLM 仍会主动读库——和"关检索=纯聊天不碰库"的预期不符。
-    // 所以检索开关同时控制 RAG 和本次工具调用。工具总开关（toolsEnabled）是全局能力开关，两者都开才用工具。
-    mcpEnabled: store.toolsEnabled && store.mcpHasTools && opts.ragEnabled,
+    mcpEnabled: store.toolsEnabled && store.mcpHasTools,
     thinkingEnabled: store.thinkingSupported && opts.thinkingEnabled,
     requestId,
   });
