@@ -229,24 +229,15 @@ function switchView(view) {
 }
 
 // ---------------- AI 状态 ----------------
-// 之前这里直接 bar.textContent = ... 把整个容器的文本全覆盖掉了，连带把里面那个状态点
-// <span id="aiStatusDot"> 一起清没了——所以样式改的类名从来没生效过。改成分别更新文字和点的样式。
+// AI 状态栏已迁到 Vue（AiStatus.vue），由 store.aiStatus 驱动，app-vue.js 接 kb.ai.onStatus。
+// 这里保留 setAiStatus 函数定义（兼容可能的旧引用），但不再监听事件，避免和 Vue 双写。
 function setAiStatus(text, dotClass) {
-  el("aiStatusText").textContent = text;
-  el("aiStatusDot").className = `status-dot${dotClass ? " " + dotClass : ""}`;
+  const t = document.getElementById("aiStatusText");
+  const d = document.getElementById("aiStatusDot");
+  if (t) t.textContent = text;
+  if (d) d.className = `status-dot${dotClass ? " " + dotClass : ""}`;
 }
-kb.ai.onStatus((status) => {
-  if (status.phase === "loading-model") {
-    const pct = status.progress ? Math.round(status.progress) + "%" : "";
-    setAiStatus(`本地检索模型加载中… ${status.file || ""} ${pct}`, "loading");
-  } else if (status.phase === "worker-started") {
-    setAiStatus("本地检索模型加载中…", "loading");
-  } else if (status.phase === "ready") {
-    setAiStatus("本地检索模型已就绪", "ready");
-  } else if (status.phase === "unloaded") {
-    setAiStatus("本地检索模型：已因空闲卸载，下次提问会自动重新加载", "");
-  }
-});
+// kb.ai.onStatus 已由 app-vue.js 接管，这里不再重复监听
 
 // ---------------- 批量删除消息 ----------------
 function updateSelectionUi() {

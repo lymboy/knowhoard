@@ -284,5 +284,7 @@
   <script src="../node_modules/katex/dist/katex.min.js"></script>
   <script src="../node_modules/katex/dist/contrib/auto-render.min.js"></script>
   <script src="app.js"></script>
+  <!-- Vue 渲染层入口（ESM，defer）。挂 AiStatus 等 Vue 组件，接 AI 状态到 store -->
+  <script type="module" src="app-vue.js"></script>
 </body>
 </html>
