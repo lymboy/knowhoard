@@ -7,19 +7,21 @@
 // 所以 app.js 里要用 store 的地方都走 window.kbStore?.xxx（可选链，挂上前后都能跑）。
 
 import { createApp } from "./vendor/vue.runtime.js";
-import { setKb, store, handleChatEvent, setAiStatus } from "./store.js";
+import { setKb, store, handleChatEvent, setAiStatus, loadConversations as storeLoadConversations } from "./store.js";
 import { initMarkdown } from "./markdown.js";
 import AiStatus from "./vendor/components/AiStatus.js";
+import ConversationList from "./vendor/components/ConversationList.js";
 
 // 注入 IPC 桥
 setKb(window.kb);
 
-// 暴露给经典脚本 app.js 用
-window.kbStore = {
+// 暴露给经典脚本 app.js 用。合并而非覆盖——app.js 可能已经挂了 onConversationSwitched
+// 等回调（共存期 app.js 还管消息 DOM，切会话时要同步它的 DOM），这里补上 store 相关方法
+window.kbStore = Object.assign(window.kbStore || {}, {
   store,
   setAiStatus,
   handleChatEvent,
-};
+});
 
 // 初始化 markdown 渲染器（mermaid 主题 + marked renderer）
 initMarkdown();
@@ -30,6 +32,16 @@ if (aiStatusMount) {
   // 清掉原本静态的结构，让 Vue 接管
   aiStatusMount.innerHTML = "";
   createApp(AiStatus).mount(aiStatusMount);
+}
+
+// 挂载会话列表（替换 index.html 里 #conversationList 的静态内容：旧的新建按钮 + 空 conversationItems）
+const convListMount = document.getElementById("conversationList");
+if (convListMount) {
+  convListMount.innerHTML = "";
+  createApp(ConversationList).mount(convListMount);
+  // app.js 的 init（async）可能还没把会话列表拉完，这里自己拉一次保证 store.conversations 有数据
+  // （app.js 的 loadConversations 此时 window.kbStore 还没挂，同步不到 store，所以 store 自己拉）
+  storeLoadConversations();
 }
 
 // 接 AI 状态事件到 store

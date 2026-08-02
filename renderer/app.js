@@ -276,82 +276,14 @@ el("deleteSelectedBtn").addEventListener("click", async () => {
 });
 
 // ---------------- 会话列表 ----------------
+// 会话列表的 DOM 渲染和交互已迁到 Vue（ConversationList.vue），由 store.conversations 驱动。
+// 这里 loadConversations 只负责刷新 state.conversations（供 app.js 自己的 openConversation /
+// sendMessage 等读会话标题用）并同步到 store，不再渲染 #conversationItems。
 async function loadConversations() {
   state.conversations = await kb.conversations.list();
-  const wrap = el("conversationItems");
-  wrap.innerHTML = "";
-  for (const conv of state.conversations) {
-    const item = document.createElement("div");
-    item.className = "conversation-item" + (conv.id === state.activeConversationId ? " active" : "");
-    item.innerHTML = `<span class="title" title="双击重命名">${escapeHtml(conv.title)}</span><button class="del" title="删除">×</button>`;
-    const titleEl = item.querySelector(".title");
-    // 双击会先触发两次 click、才轮到 dblclick——之前 click 直接调 openConversation()，
-    // 它内部会 loadConversations() 把整个列表 DOM 重建一遍，等 dblclick 真正触发时，
-    // 这里捕获的 titleEl 早就是个不在文档里的旧节点了，replaceWith 换的是个没人看得见的幽灵节点。
-    // 用一个小延迟分辨单击/双击：单击先等一下，真等到双击就取消单击那次动作。
-    let clickTimer = null;
-    titleEl.addEventListener("click", () => {
-      if (clickTimer) return;
-      clickTimer = setTimeout(() => {
-        clickTimer = null;
-        openConversation(conv.id);
-      }, 250);
-    });
-    titleEl.addEventListener("dblclick", (e) => {
-      e.stopPropagation();
-      clearTimeout(clickTimer);
-      clickTimer = null;
-      // 标题是从第一条消息自动摘出来的，可能正好摘到敏感内容——支持双击手动改成别的文案，
-      // 别人瞄一眼侧边栏不至于直接看到原始问题
-      const input = document.createElement("input");
-      input.type = "text";
-      input.className = "title-edit-input";
-      input.value = conv.title;
-      titleEl.replaceWith(input);
-      input.focus();
-      input.select();
-      const commit = async () => {
-        const newTitle = input.value.trim() || conv.title;
-        if (newTitle !== conv.title) {
-          await kb.conversations.rename(conv.id, newTitle);
-          // 改的正好是当前打开的这个会话时，顶部标题栏是另一份独立状态，不会跟着侧边栏联动，
-          // 不补这一句的话，重命名完顶部还是显示改名前的旧标题，看着像没生效
-          if (conv.id === state.activeConversationId) el("chatTitle").textContent = newTitle;
-        }
-        loadConversations();
-      };
-      input.addEventListener("blur", commit);
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") input.blur();
-        if (ev.key === "Escape") {
-          input.value = conv.title;
-          input.blur();
-        }
-      });
-    });
-    item.querySelector(".del").addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!(await showConfirm(`删除会话「${conv.title}」？`))) return;
-      await kb.conversations.remove(conv.id);
-      if (state.activeConversationId === conv.id) {
-        state.activeConversationId = null;
-        el("messages").innerHTML = "";
-      }
-      loadConversations();
-    });
-    wrap.appendChild(item);
-  }
+  // 同步到 Vue store（ConversationList 读 store.conversations）
+  if (window.kbStore?.store) window.kbStore.store.conversations = state.conversations;
 }
-
-el("newConversationBtn").addEventListener("click", async () => {
-  const id = await kb.conversations.create("新会话");
-  state.activeConversationId = id;
-  await loadConversations();
-  el("messages").innerHTML = "";
-  el("chatTitle").textContent = "新会话";
-  pageState = { conversationId: id, oldestCreatedAt: null, hasMore: false, loadingOlder: false };
-  switchView("chat");
-});
 
 // 惰性分页：进会话只取最近一页；往上滑到接近顶部再取更早一页往前拼。
 // 每一页后端已经保证内部是正序（旧→新），这里只管"整页往前插"，不打乱页内顺序、不跟别的会话串。
@@ -1363,6 +1295,22 @@ el("onboardingDismiss").addEventListener("click", async () => {
 kb.app.onShowOnboarding(() => {
   el("onboardingOverlay").hidden = false;
 });
+
+// ---------------- 桥接：暴露给 Vue 组件（ConversationList 等）调用的回调 ----------------
+// app.js 先于 app-vue.js 执行，这里挂自己的命名空间 window.kbAppBridge，不依赖 app-vue.js 的 kbStore。
+// Vue 组件切会话/重命名/删除时通过这个 bridge 通知 app.js 同步它还管着的消息 DOM 和顶部标题。
+window.kbAppBridge = {
+  // 切会话：app.js 同步消息 DOM（Vue 的 store.loadConversation 负责更新 store.messages）
+  openConversation,
+  // 重命名当前会话后同步顶部标题
+  setChatTitle: (title) => { el("chatTitle").textContent = title; },
+  // 切视图
+  switchView,
+  // 复用 app.js 的自定义确认框（还没迁 Vue）
+  showConfirm,
+  // 当前活跃会话 id（Vue 侧也能从 store 读，这里给 app.js 旧逻辑兼容）
+  getActiveConversationId: () => state.activeConversationId,
+};
 
 // ---------------- 初始化 ----------------
 (async function init() {

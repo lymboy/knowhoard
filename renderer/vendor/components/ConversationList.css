@@ -1,0 +1,7 @@
+/* ConversationList.vue style 0 (scoped) */
+
+.conversation-list-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
