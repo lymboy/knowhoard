@@ -50,63 +50,11 @@ html, body {
 }
 
 /* ---------- 侧边栏 ---------- */
-.sidebar {
-  width: 260px;
-  flex-shrink: 0;
-  background: linear-gradient(180deg, var(--bg-elevated), var(--bg));
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 16px 12px;
-  padding-top: 32px; /* 标题栏隐藏后红黄绿按钮悬浮在这一块上方，多留点顶部空间别撞上 */
-  -webkit-app-region: drag; /* 隐藏标题栏后窗口本身不能再靠标题栏拖动了，侧边栏空白区顶上来当拖拽区 */
-}
-.sidebar button, .sidebar input, .sidebar .conversation-item {
-  -webkit-app-region: no-drag; /* 拖拽区里的可点击元素要单独排除，不然点不动 */
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 8px 24px; /* 底部留更多空间，让下方 nav-tabs 不顶到标题区 */
-}
-.brand-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-}
-.brand-title {
-  font-weight: 600;
-  font-size: 15px;
-}
-.brand-sub {
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.nav-tabs {
-  display: flex;
-  gap: 4px;
-  background: var(--bg-elevated-2);
-  border-radius: 10px;
-  padding: 4px;
-  margin-bottom: 14px;
-}
-.nav-tab {
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  padding: 7px 0;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.nav-tab.active {
-  background: var(--accent);
-  color: #1b0a12;
-  font-weight: 600;
+/* 侧边栏布局（.sidebar/.brand/.nav-tabs/.nav-tab）已由 App.vue 接管，这里不再重复定义，
+   避免全局规则与 App.vue 叠加导致 nav-tab 居中错乱、选中色冲突。
+   仅保留拖拽区设置（App.vue 也设了，这里冗余但无害，保 no-drag 给 conversation-item）。 */
+.sidebar button, .sidebar input, .sidebar .conversation-item, .sidebar .nav-tab, .sidebar .new-conversation {
+  -webkit-app-region: no-drag;
 }
 
 .conversation-list {
@@ -165,8 +113,8 @@ html, body {
   background: var(--bg-elevated-2);
 }
 .conversation-item.active {
-  background: var(--accent-soft);
-  color: var(--text);
+  background: var(--td-brand-color-light);
+  color: var(--td-text-color-primary);
 }
 .conversation-item .del {
   opacity: 0;

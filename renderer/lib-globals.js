@@ -22,3 +22,5 @@ window.renderMathInElement = renderMathInElement;
 // 不再靠 index.html 的 <link> 引 node_modules 路径（vite 不认那种路径）
 import "github-markdown-css/github-markdown.css";
 import "katex/dist/katex.min.css";
+// TDesign 设计系统样式（颜色/字号/圆角/间距/组件），含亮暗 token
+import "tdesign-vue-next/es/style/index.css";

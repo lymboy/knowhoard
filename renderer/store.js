@@ -39,6 +39,11 @@ export const store = reactive({
   currentRequestId: null,
   // 当前流式 assistant 消息在 messages 里的索引（流式事件往这条上写）
   currentStreamIndex: -1,
+  // 自定义确认对话框（替代原生 confirm，跨视图共用）。showConfirm 设状态并返回 Promise，
+  // App.vue 渲染 t-dialog，确定/取消回调 resolve
+  confirm: { visible: false, message: "", resolve: null, okText: "确定", okDanger: false, cancelText: "取消" },
+  // 首次启动引导弹窗可见性
+  onboardingVisible: false,
 });
 
 // 挂到全局：组件 setup 用 window.__STORE 取 store，彻底绕过 inject/getCurrentInstance/import 时序问题
@@ -296,6 +301,51 @@ export async function deleteMessages(ids) {
   ids.forEach((id) => store.selectedMessageIds.delete(id));
 }
 
+// ------ 自定义确认对话框（替代原生 confirm，跨视图共用）------
+// App.vue 渲染 t-dialog 绑定 store.confirm；这里设状态返回 Promise，确定/取消由 App.vue 回调 resolve。
+// okDanger=true 时确定按钮显示红色（危险操作如移除/删除），okText 可自定义（如"去系统设置开启权限"）。
+export function showConfirm(message, opts = {}) {
+  return new Promise((resolve) => {
+    store.confirm.visible = true;
+    store.confirm.message = message;
+    store.confirm.resolve = resolve;
+    store.confirm.okText = opts.okText || "确定";
+    store.confirm.okDanger = !!opts.okDanger;
+    store.confirm.cancelText = opts.cancelText || "取消";
+  });
+}
+// 确认对话框回调（App.vue 的确定按钮调）
+export function resolveConfirm(result) {
+  if (store.confirm.resolve) store.confirm.resolve(result);
+  store.confirm.resolve = null;
+  store.confirm.visible = false;
+}
+
+// iCloud/Obsidian 同步撞上 macOS 隐私权限时，给一个能直接跳系统设置的入口
+export function showPermissionHelp(message) {
+  return new Promise((resolve) => {
+    store.confirm.visible = true;
+    store.confirm.message = message;
+    store.confirm.resolve = resolve;
+    store.confirm.okText = "去系统设置开启权限";
+    store.confirm.okDanger = false;
+  });
+}
+
+// ------ 首次启动引导 ------
+export async function maybeShowOnboarding() {
+  try {
+    const settings = await getKb().settings.get();
+    if (!settings.hasSeenOnboarding) store.onboardingVisible = true;
+  } catch (e) {
+    console.error("[store] onboarding check error", e);
+  }
+}
+export async function dismissOnboarding() {
+  store.onboardingVisible = false;
+  await getKb().settings.update({ hasSeenOnboarding: true });
+}
+
 // 把所有 API 方法挂到全局，组件用 window.__STORE_API 取，绕过 inject/import 时序问题
 if (typeof window !== "undefined") {
   window.__STORE_API = {
@@ -307,5 +357,9 @@ if (typeof window !== "undefined") {
     stopSending,
     setAiStatus,
     handleChatEvent,
+    showConfirm,
+    resolveConfirm,
+    maybeShowOnboarding,
+    dismissOnboarding,
   };
 }

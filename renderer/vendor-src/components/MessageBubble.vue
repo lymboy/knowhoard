@@ -41,6 +41,8 @@
 import { renderMarkdown, highlightAndRenderDiagrams } from "../../markdown.js";
 import ToolCallsBlock from "./ToolCallsBlock.vue";
 import CitationChips from "./CitationChips.vue";
+import userAvatarUrl from "../../assets/user-avatar.png";
+import mascotUrl from "../../assets/mascot-cropped.png";
 
 export default {
   components: { ToolCallsBlock, CitationChips },
@@ -55,7 +57,7 @@ export default {
       return window.__STORE;
     },
     avatarSrc() {
-      return this.msg.role === "user" ? "./user-avatar.png" : "./mascot-cropped.png";
+      return this.msg.role === "user" ? userAvatarUrl : mascotUrl;
     },
     selected() {
       return !!this.msg.id && this.store.selectedMessageIds.has(this.msg.id);
