@@ -8,7 +8,7 @@ const { compressText, decompressText } = require("./db/compress");
 const sync = require("./ingest/sync");
 const { getObsidianStatus } = require("./ingest/obsidian");
 const { runAgentTurn } = require("./ai/agentLoop");
-const { probeThinkingSupport, listModels } = require("./ai/llmClient");
+const { probeThinkingSupport, listModels, chatCompletion } = require("./ai/llmClient");
 
 const HISTORY_CHAR_BUDGET = 12000; // 粗略按 1 token ≈ 2 字符估算，约等于 6000 token 的历史预算，留够空间给系统提示词/检索上下文/回答
 const HISTORY_MAX_TURNS = 20; // 一问一答算一轮，最多带最近 20 轮，先用轮数卡一道再用字符预算兜底
@@ -35,6 +35,8 @@ function truncateHistory(messages, budget = HISTORY_CHAR_BUDGET) {
 function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
   const db = getDb();
   const activeAbortControllers = new Map();
+  // 进行中的 chat:send promise：退出前要等它们都 settle（落库）再走，防止流式消息丢失
+  const pendingSendPromises = new Set();
 
   // 窗口关掉之后 Mac 上进程还留在 Dock 里，用户点 Dock 图标会重新建一个新窗口——
   // 这些 handler 是启动时注册一次的，不能在闭包里攥死当时那个窗口对象，
@@ -396,7 +398,9 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
       id,
       conversationId,
       role,
-      compressText(content),
+      // compressText("") 返回 null（空字符串 falsy），但 content 列 NOT NULL 会炸。
+      // 占位助手消息 content 为空，用空 Buffer 占位（非 null），decompressText(空Buffer) 兜底返回 ""
+      compressText(content) || Buffer.alloc(0),
       reasoning ? compressText(reasoning) : null,
       citations && citations.length ? JSON.stringify(citations) : null,
       ragEnabled ? 1 : 0,
@@ -413,6 +417,41 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     return id;
   }
 
+  // AI 自动生成会话标题：对话有了一轮完整问答后，用 LLM 总结生成 ≤16 字标题，
+  // 替代"首条消息前24字截断"的粗糙做法（像 ChatGPT/豆包）。只在标题还是占位/截断时触发，
+  // 用户手动改过的不覆盖。生成后 UPDATE 库 + 发 conversation:renamed 事件让前端刷新列表。
+  async function generateConversationTitle(conversationId, send) {
+    try {
+      const conv = db.prepare(`SELECT title FROM conversations WHERE id = ?`).get(conversationId);
+      if (!conv) return;
+      // 用户手动改过（不是"新会话"也不是首条截断占位）就不覆盖
+      const isPlaceholder = conv.title === "新会话" || conv.title.length >= 24;
+      if (!isPlaceholder) return;
+
+      // 取第一条 user + 第一条 assistant（够总结标题了，不必喂全部历史省 token）
+      const rows = db.prepare(
+        `SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user','assistant') ORDER BY created_at ASC LIMIT 2`
+      ).all(conversationId);
+      const turns = rows.map((r) => ({ role: r.role, content: decompressText(r.content) || "" }));
+      if (turns.length < 2) return; // 还没有完整一轮问答，不生成
+
+      const settings = getSettings();
+      if (!settings.llm?.baseUrl || !settings.llm?.model) return;
+      const promptMessages = [
+        { role: "system", content: "根据以下对话，生成一个简短的中文会话标题（不超过16个字，不要引号、不要句号、不要前缀如 标题: ）。直接输出标题文字。" },
+        { role: "user", content: `用户: ${turns[0].content.slice(0, 200)}\n助手: ${turns[1].content.slice(0, 200)}` },
+      ];
+      const result = await chatCompletion({ ...settings.llm, thinkingEnabled: false }, promptMessages, {});
+      const title = (result.content || "").trim().split("\n")[0].slice(0, 24);
+      if (!title) return;
+      db.prepare(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?`).run(title, Date.now(), conversationId);
+      send({ type: "conversation:renamed", conversationId, title });
+    } catch (e) {
+      // 标题生成失败不影响主流程，静默
+      console.error("[generateConversationTitle] error", e.message);
+    }
+  }
+
   // ---------- 聊天 ----------
   ipcMain.handle("chat:send", async (_e, params) => {
     const { conversationId, message, ragEnabled, mcpEnabled, thinkingEnabled, requestId } =
@@ -420,6 +459,12 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     const settings = getSettings();
     const abortController = new AbortController();
     activeAbortControllers.set(requestId, abortController);
+
+    // 退出收尾：把这个 send 的完成信号存进 pendingSendPromises，before-quit 时
+    // abort 所有 controller + await 全部 pending，确保进行中的流式落库后再退出
+    let pendingResolve;
+    const pendingPromise = new Promise((r) => { pendingResolve = r; });
+    pendingSendPromises.add(pendingPromise);
 
     const fullHistory = db
       .prepare(`SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`)
@@ -432,11 +477,43 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     const userMessageId = saveMessage({ conversationId, role: "user", content: message, ragEnabled });
     send({ type: "user-message-saved", messageId: userMessageId });
 
+    // 流式增量落库：开始就建一条占位助手消息拿 id，流式过程中节流 UPDATE content/reasoning，
+    // 这样进程被杀（pkill/关窗）时已经把大部分内容落库，不会整条丢失。
+    // 之前是流式结束才一次性 INSERT，中途死了就全丢。
+    const assistantMessageId = saveMessage({
+      conversationId, role: "assistant", content: "", reasoning: "", citations: [], ragEnabled,
+    });
+    send({ type: "assistant-message-created", messageId: assistantMessageId });
+
     let finalContent = "";
     let finalReasoning = "";
     let finalCitations = [];
     let finalUsage = null;
     let finalToolCalls = [];
+    let lastFlushAt = 0;
+    let flushTimer = null;
+    const FLUSH_INTERVAL = 800; // 节流：最多每 800ms 写一次库，避免每个 token 都 UPDATE
+    // 把当前累计的 content/reasoning 写库（节流）
+    const flushToDb = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastFlushAt < FLUSH_INTERVAL) {
+        if (!flushTimer) {
+          flushTimer = setTimeout(() => { flushTimer = null; flushToDb(true); }, FLUSH_INTERVAL);
+        }
+        return;
+      }
+      lastFlushAt = now;
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      try {
+        db.prepare(
+          `UPDATE messages SET content = ?, reasoning = ? WHERE id = ?`
+        ).run(
+          compressText(finalContent),
+          finalReasoning ? compressText(finalReasoning) : null,
+          assistantMessageId
+        );
+      } catch (e) { /* 落库失败不中断流式 */ }
+    };
 
     try {
       await runAgentTurn({
@@ -452,8 +529,14 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         mcpManager,
         signal: abortController.signal,
         onEvent: (event) => {
-          if (event.type === "delta") finalContent += event.text; // 增量累加，保证中途被终止时也有内容可存
-          if (event.type === "reasoning") finalReasoning += event.text;
+          if (event.type === "delta") {
+            finalContent += event.text;
+            flushToDb(); // 节流写库，防中途丢失
+          }
+          if (event.type === "reasoning") {
+            finalReasoning += event.text;
+            flushToDb();
+          }
           if (event.type === "done") {
             finalContent = event.content;
             finalReasoning = event.reasoning || finalReasoning;
@@ -476,38 +559,54 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         },
       });
 
-      const assistantMessageId = saveMessage({
-        conversationId,
-        role: "assistant",
-        content: finalContent,
-        reasoning: finalReasoning,
-        citations: finalCitations,
-        ragEnabled,
-        usage: finalUsage,
-        toolCalls: finalToolCalls,
-      });
+      // 正常完成：补全 citations/usage/toolCalls + 最终 content/reasoning（UPDATE，占位消息已建）
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      db.prepare(
+        `UPDATE messages SET content = ?, reasoning = ?, citations = ?,
+         prompt_tokens = ?, completion_tokens = ?, total_tokens = ?, tool_calls = ?
+         WHERE id = ?`
+      ).run(
+        compressText(finalContent),
+        finalReasoning ? compressText(finalReasoning) : null,
+        finalCitations && finalCitations.length ? JSON.stringify(finalCitations) : null,
+        finalUsage?.prompt_tokens ?? null,
+        finalUsage?.completion_tokens ?? null,
+        finalUsage?.total_tokens ?? null,
+        finalToolCalls && finalToolCalls.length ? JSON.stringify(finalToolCalls) : null,
+        assistantMessageId
+      );
+      db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(Date.now(), conversationId);
       send({ type: "saved", messageId: assistantMessageId });
+      // 异步生成 AI 标题摘要（不阻塞 saved 响应，失败静默）
+      generateConversationTitle(conversationId, send);
     } catch (error) {
       const isAbort = error.name === "AbortError";
-      // 用户主动终止：把已经流出来的这部分内容存下来，别让它凭空消失
-      if (isAbort && finalContent) {
-        const assistantMessageId = saveMessage({
-          conversationId,
-          role: "assistant",
-          content: finalContent,
-          reasoning: finalReasoning,
-          citations: finalCitations,
-          ragEnabled,
-          toolCalls: finalToolCalls,
-        });
+      // 用户主动终止 / 进程退出 abort：把已流出的内容最终写一次库（占位消息已存在，UPDATE 补全）
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      if (finalContent || finalReasoning) {
+        db.prepare(
+          `UPDATE messages SET content = ?, reasoning = ?, tool_calls = ? WHERE id = ?`
+        ).run(
+          compressText(finalContent),
+          finalReasoning ? compressText(finalReasoning) : null,
+          finalToolCalls && finalToolCalls.length ? JSON.stringify(finalToolCalls) : null,
+          assistantMessageId
+        );
         send({ type: "stopped", messageId: assistantMessageId });
       } else if (isAbort) {
+        // 没有任何内容就中止：删掉占位空消息，别留一条空助手消息
+        db.prepare(`DELETE FROM messages WHERE id = ?`).run(assistantMessageId);
         send({ type: "stopped" });
       } else {
-        send({ type: "error", message: error.message });
+        // 出错：把错误信息写进占位消息内容，保留这条（让用户看到失败原因），不删
+        db.prepare(`UPDATE messages SET content = ? WHERE id = ?`).run(
+          compressText(`⚠️ 出错了：${error.message}`), assistantMessageId
+        );
+        send({ type: "error", message: error.message, messageId: assistantMessageId });
       }
     } finally {
       activeAbortControllers.delete(requestId);
+      if (pendingResolve) { pendingResolve(); pendingSendPromises.delete(pendingPromise); }
     }
   });
 
@@ -516,6 +615,17 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     if (controller) controller.abort();
     return true;
   });
+
+  // 退出前收尾：abort 所有进行中的流式请求（触发它们的 catch 分支把已流出的内容落库），
+  // 再等所有 pending send 落库完成。index.js 的 before-quit 调这个，防关窗/pkill 时消息丢失
+  function flushPendingChats() {
+    for (const controller of activeAbortControllers.values()) {
+      try { controller.abort(); } catch (e) {}
+    }
+    return Promise.all(Array.from(pendingSendPromises));
+  }
+
+  return { flushPendingChats };
 }
 
 module.exports = { registerIpcHandlers };

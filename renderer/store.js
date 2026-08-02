@@ -20,6 +20,9 @@ export const store = reactive({
   mcpHasTools: false,
   toolsEnabled: true,
   thinkingSupported: false,
+  // 对话开关状态（持久化在 settings，启动时从 settings 读回，切换时写 settings）
+  ragEnabled: true,
+  thinkingEnabled: false,
   // 发送状态
   sending: false,
   // 批量删除
@@ -37,6 +40,10 @@ export const store = reactive({
   // 当前流式 assistant 消息在 messages 里的索引（流式事件往这条上写）
   currentStreamIndex: -1,
 });
+
+// 挂到全局：组件 setup 用 window.__STORE 取 store，彻底绕过 inject/getCurrentInstance/import 时序问题
+// （store.js 被 app-vue.js import 时求值，此时挂上；组件 setup 在 mount 时跑，一定已挂）
+if (typeof window !== "undefined") window.__STORE = store;
 
 // 把 IPC 桥（window.kb）注入进来，避免循环依赖。app-vue.js 启动时调一次。
 let kb = null;
@@ -151,7 +158,10 @@ export async function startSending(text, opts) {
     conversationId: store.activeConversationId,
     message: text,
     ragEnabled: opts.ragEnabled,
-    mcpEnabled: store.toolsEnabled && store.mcpHasTools,
+    // 检索开关关闭时，工具也不启用：工具能自己 list_directory/read_file 翻本地知识库文件，
+    // 关 RAG 但留工具的话，LLM 仍会主动读库——和"关检索=纯聊天不碰库"的预期不符。
+    // 所以检索开关同时控制 RAG 和本次工具调用。工具总开关（toolsEnabled）是全局能力开关，两者都开才用工具。
+    mcpEnabled: store.toolsEnabled && store.mcpHasTools && opts.ragEnabled,
     thinkingEnabled: store.thinkingSupported && opts.thinkingEnabled,
     requestId,
   });
@@ -176,6 +186,12 @@ export function endSending() {
 // ------ 处理 chat 流式事件：更新 messages[]，Vue 自动重渲染 ------
 // 把 app.js 里那套 DOM 操作全部换成对 store.messages[currentStreamIndex] 的字段更新
 export function handleChatEvent(event) {
+  // conversation:renamed 是 AI 标题摘要事件，不属于某次请求（无 requestId），单独处理，不走流式消息分支
+  if (event.type === "conversation:renamed") {
+    const conv = store.conversations.find((c) => c.id === event.conversationId);
+    if (conv) conv.title = event.title;
+    return;
+  }
   if (event.requestId !== store.currentRequestId) return;
   if (store.currentStreamIndex < 0) return;
   const msg = store.messages[store.currentStreamIndex];
@@ -186,6 +202,11 @@ export function handleChatEvent(event) {
       // 用户消息落库后才有 id，回填到前面那条用户消息
       const userMsg = store.messages[store.currentStreamIndex - 1];
       if (userMsg && userMsg.role === "user") userMsg.id = event.messageId;
+      break;
+    }
+    case "assistant-message-created": {
+      // 流式开始就建了占位助手消息，id 最先拿到——回填后前端立即可收藏/操作
+      msg.id = event.messageId;
       break;
     }
     case "delta":
@@ -276,4 +297,18 @@ export async function deleteMessages(ids) {
   const idSet = new Set(ids);
   store.messages = store.messages.filter((m) => !idSet.has(m.id));
   ids.forEach((id) => store.selectedMessageIds.delete(id));
+}
+
+// 把所有 API 方法挂到全局，组件用 window.__STORE_API 取，绕过 inject/import 时序问题
+if (typeof window !== "undefined") {
+  window.__STORE_API = {
+    loadConversations,
+    loadConversation,
+    loadOlderMessages,
+    deleteMessages,
+    startSending,
+    stopSending,
+    setAiStatus,
+    handleChatEvent,
+  };
 }

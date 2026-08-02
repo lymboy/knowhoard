@@ -69,7 +69,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 8px 16px;
+  padding: 4px 8px 24px; /* 底部留更多空间，让下方 nav-tabs 不顶到标题区 */
 }
 .brand-logo {
   width: 36px;
@@ -225,6 +225,19 @@ html, body {
 }
 .view.active {
   display: flex;
+}
+
+/* Vue 接管的对话视图挂载点：撑满父容器，让 ChatView 的 flex column 布局生效
+   （toolbar 顶、messages 占满中间、composer 固定底部） */
+#chat-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#chat-root > .chat-view-inner {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---------- 聊天视图 ---------- */

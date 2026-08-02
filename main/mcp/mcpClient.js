@@ -140,8 +140,8 @@ class McpManager {
 
   async callTool(qualifiedName, args, ctx) {
     const sepIndex = qualifiedName.indexOf("__");
-    const prefix = qualifiedName.slice(0, sepIndex);
-    const toolName = qualifiedName.slice(sepIndex + 2);
+    const prefix = sepIndex >= 0 ? qualifiedName.slice(0, sepIndex) : "";
+    const toolName = sepIndex >= 0 ? qualifiedName.slice(sepIndex + 2) : qualifiedName;
 
     // 内置工具
     if (prefix === BUILTIN_PREFIX) {
@@ -152,9 +152,24 @@ class McpManager {
 
     // MCP 工具
     const entry = this.clients.get(prefix);
-    if (!entry) throw new Error(`MCP server 未连接: ${prefix}`);
-    const result = await entry.client.callTool({ name: toolName, arguments: args });
-    return result;
+    if (entry) {
+      const result = await entry.client.callTool({ name: toolName, arguments: args });
+      return result;
+    }
+
+    // 容错：LLM 偶尔会把工具名写错——漏掉 builtin__ 前缀、或前缀拼错（如 search_file__ 而非 builtin__）。
+    // 用完整名或去掉前缀后的 toolName 在内置工具里兜底找一遍，找到就走 builtin，避免"MCP server 未连接"误报。
+    const fallbackName = sepIndex >= 0 ? toolName : qualifiedName;
+    const builtinDef = this.builtinDefs.get(fallbackName);
+    if (builtinDef) {
+      try {
+        return await builtinDef.handler(args, ctx);
+      } catch (e) {
+        throw new Error(`工具调用失败: ${fallbackName}: ${e.message}`);
+      }
+    }
+
+    throw new Error(`MCP server 未连接或工具不存在: ${qualifiedName}`);
   }
 
   hasAnyTool() {

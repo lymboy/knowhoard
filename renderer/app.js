@@ -201,14 +201,7 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
-const NEAR_BOTTOM_THRESHOLD = 80;
-function isNearBottom(container) {
-  return container.scrollHeight - container.scrollTop - container.clientHeight < NEAR_BOTTOM_THRESHOLD;
-}
-function scrollToBottomIfFollowing() {
-  const wrap = el("messages");
-  if (isNearBottom(wrap)) wrap.scrollTop = wrap.scrollHeight;
-}
+// 滚动跟随（isNearBottom/scrollToBottomIfFollowing）已迁到 Vue ChatView，由 watch messages 驱动。
 
 // ---------------- 视图切换 ----------------
 document.querySelectorAll(".nav-tab").forEach((tab) => {
@@ -239,446 +232,27 @@ function setAiStatus(text, dotClass) {
 }
 // kb.ai.onStatus 已由 app-vue.js 接管，这里不再重复监听
 
-// ---------------- 批量删除消息 ----------------
-function updateSelectionUi() {
-  const count = state.selectedMessageIds.size;
-  const countEl = el("selectionCount");
-  const delBtn = el("deleteSelectedBtn");
-  countEl.hidden = !state.selecting;
-  delBtn.hidden = !state.selecting || count === 0;
-  countEl.textContent = state.selecting ? `已选 ${count} 条` : "";
-}
-
-el("toggleSelectModeBtn").addEventListener("click", () => {
-  state.selecting = !state.selecting;
-  document.getElementById("app").classList.toggle("selecting", state.selecting);
-  el("toggleSelectModeBtn").classList.toggle("active", state.selecting);
-  el("toggleSelectModeBtn").textContent = state.selecting ? "取消批量" : "批量删除";
-  if (!state.selecting) {
-    state.selectedMessageIds.clear();
-    document.querySelectorAll(".msg-select-checkbox").forEach((cb) => (cb.checked = false));
-    document.querySelectorAll(".msg.selected").forEach((m) => m.classList.remove("selected"));
-  }
-  updateSelectionUi();
-});
-
-el("deleteSelectedBtn").addEventListener("click", async () => {
-  const ids = Array.from(state.selectedMessageIds);
-  if (!ids.length) return;
-  if (!(await showConfirm(`删除选中的 ${ids.length} 条消息？删除后无法恢复。`))) return;
-  await kb.messages.deleteMany(ids);
-  ids.forEach((id) => {
-    const msgEl = document.querySelector(`.msg[data-message-id="${id}"]`);
-    if (msgEl) msgEl.remove();
-  });
-  state.selectedMessageIds.clear();
-  updateSelectionUi();
-});
+// 批量删除消息的 DOM 绑定已迁到 Vue（ChatView.vue + MessageBubble.vue 的 checkbox）。
+// updateSelectionUi / toggleSelectModeBtn / deleteSelectedBtn 这几个元素已不在 index.html，
+// app.js 不再绑定，避免 el() 返回 null 报错。
 
 // ---------------- 会话列表 ----------------
 // 会话列表的 DOM 渲染和交互已迁到 Vue（ConversationList.vue），由 store.conversations 驱动。
-// 这里 loadConversations 只负责刷新 state.conversations（供 app.js 自己的 openConversation /
-// sendMessage 等读会话标题用）并同步到 store，不再渲染 #conversationItems。
+// 这里 loadConversations 只负责刷新 state.conversations（供 app.js 自己读会话标题用）并同步到 store。
 async function loadConversations() {
   state.conversations = await kb.conversations.list();
   // 同步到 Vue store（ConversationList 读 store.conversations）
   if (window.kbStore?.store) window.kbStore.store.conversations = state.conversations;
 }
 
-// 惰性分页：进会话只取最近一页；往上滑到接近顶部再取更早一页往前拼。
-// 每一页后端已经保证内部是正序（旧→新），这里只管"整页往前插"，不打乱页内顺序、不跟别的会话串。
-const PAGE_SIZE = 30;
-const LOAD_MORE_SCROLL_THRESHOLD = 80;
-let pageState = { conversationId: null, oldestCreatedAt: null, hasMore: false, loadingOlder: false };
-
-function renderHistoryMessage(m, prepend) {
-  return appendMessageBubble(
-    m.role,
-    { content: m.content, reasoning: m.reasoning, citations: m.citations, toolCalls: m.toolCalls, id: m.id, favorited: m.favorited },
-    prepend
-  );
-}
-
+// 切会话：消息 DOM 已由 Vue ChatView 接管，这里只切视图 + 让 store 加载消息。
+// 保留这个函数是因为收藏视图的「查看对话」会调它。
 async function openConversation(id) {
-  state.activeConversationId = id;
   switchView("chat");
-  await loadConversations();
-  const conv = state.conversations.find((c) => c.id === id);
-  el("chatTitle").textContent = conv ? conv.title : "";
-
-  const wrap = el("messages");
-  wrap.innerHTML = "";
-  const { messages, hasMore } = await kb.conversations.getMessages(id, { limit: PAGE_SIZE });
-  for (const m of messages) renderHistoryMessage(m, false);
-  pageState = {
-    conversationId: id,
-    oldestCreatedAt: messages[0]?.created_at ?? null,
-    hasMore,
-    loadingOlder: false,
-  };
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-el("messages").addEventListener("scroll", async () => {
-  const wrap = el("messages");
-  if (wrap.scrollTop > LOAD_MORE_SCROLL_THRESHOLD) return;
-  if (pageState.loadingOlder || !pageState.hasMore) return;
-  if (pageState.conversationId !== state.activeConversationId) return;
-
-  pageState.loadingOlder = true;
-  const prevScrollHeight = wrap.scrollHeight;
-  const prevScrollTop = wrap.scrollTop;
-  try {
-    const { messages, hasMore } = await kb.conversations.getMessages(state.activeConversationId, {
-      beforeCreatedAt: pageState.oldestCreatedAt,
-      limit: PAGE_SIZE,
-    });
-    if (messages.length) {
-      // 这一页内部是正序（旧→新）。prepend 每次都插在"当前最前面"，所以要倒着插——
-      // 先插这页最新的一条，最后插这页最旧的一条，最旧的才会真正落到整个列表最前面，
-      // 页内顺序才不会被"每次插到最前面"这个操作反过来
-      for (let i = messages.length - 1; i >= 0; i--) renderHistoryMessage(messages[i], true);
-      pageState.oldestCreatedAt = messages[0].created_at;
-      pageState.hasMore = hasMore;
-      // 往上插入内容会把已有内容往下推，不修正的话视觉上会突然跳一下——
-      // 用高度差补一下 scrollTop，让用户感觉不到内容是从上面插进来的
-      wrap.scrollTop = prevScrollTop + (wrap.scrollHeight - prevScrollHeight);
-    } else {
-      pageState.hasMore = false;
-    }
-  } finally {
-    pageState.loadingOlder = false;
+  // 走 store 的加载（更新 store.messages，ChatView 自动渲染）
+  if (window.kbStore?.loadConversation) {
+    await window.kbStore.loadConversation(id);
   }
-});
-
-// ---------------- 消息渲染 ----------------
-const rawTextByMsgEl = new WeakMap();
-
-function buildBubbleActions(msg, messageId, favorited) {
-  const wrap = document.createElement("div");
-  wrap.className = "bubble-actions";
-  wrap.innerHTML = `<button data-act="copy">复制</button><button data-act="fav">${favorited ? "★ 已收藏" : "☆ 收藏"}</button>`;
-
-  wrap.querySelector('[data-act="copy"]').addEventListener("click", () => {
-    const text = rawTextByMsgEl.get(msg) || "";
-    navigator.clipboard.writeText(text);
-    const btn = wrap.querySelector('[data-act="copy"]');
-    btn.textContent = "已复制";
-    setTimeout(() => (btn.textContent = "复制"), 1200);
-  });
-
-  const favBtn = wrap.querySelector('[data-act="fav"]');
-  favBtn.classList.toggle("favorited", !!favorited);
-  favBtn.addEventListener("click", async () => {
-    const id = msg.dataset.messageId;
-    if (!id) return;
-    const isFav = favBtn.classList.contains("favorited");
-    if (isFav) {
-      await kb.favorites.remove(id);
-      favBtn.classList.remove("favorited");
-      favBtn.textContent = "☆ 收藏";
-    } else {
-      await kb.favorites.add(id, state.activeConversationId);
-      favBtn.classList.add("favorited");
-      favBtn.textContent = "★ 已收藏";
-    }
-  });
-
-  return wrap;
-}
-
-// 历史消息里的工具调用记录还原成折叠块——结构跟流式时的 tool-calls 一致，
-// 但默认收起（历史回顾时主要要看回答，工具记录是辅助信息）
-function buildToolCallsBlock(toolCalls) {
-  const el_ = document.createElement("details");
-  el_.className = "tool-calls";
-  el_.open = false;
-  el_.innerHTML = `<summary>调用了 ${toolCalls.length} 个工具</summary><div class="tool-calls-body"></div>`;
-  const body = el_.querySelector(".tool-calls-body");
-  toolCalls.forEach((tc) => {
-    const entry = document.createElement("div");
-    entry.className = "tool-call-entry";
-    const displayName = tc.name.includes("__") ? tc.name.split("__").slice(1).join("__") : tc.name;
-    const statusText = tc.ok ? (tc.result?.slice(0, 200) || "完成") : tc.result;
-    entry.innerHTML = `<div class="tool-call-name">🔧 ${escapeHtml(displayName)}</div><div class="tool-call-result">${escapeHtml(statusText)}</div>`;
-    body.appendChild(entry);
-  });
-  return el_;
-}
-
-function buildCitationChips(citations) {
-  const citeWrap = document.createElement("div");
-  citeWrap.className = "citations";
-  citations.forEach((c, i) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "citation-chip";
-    const isUrl = /^https?:\/\//.test(c.path);
-    chip.title = isUrl ? `点击在浏览器中打开：${c.path}` : `点击在 Finder 中查看：${c.path}`;
-    chip.textContent = `[来源${i + 1}] ${c.filename}`;
-    chip.addEventListener("click", () => {
-      if (isUrl) kb.shell.openExternal(c.path);
-      else kb.documents.openInFinder(c.path);
-    });
-    citeWrap.appendChild(chip);
-  });
-  return citeWrap;
-}
-
-function appendMessageBubble(role, { content = "", reasoning = "", citations = [], toolCalls = [], id = "", favorited = false } = {}) {
-  const wrap = el("messages");
-  const msg = document.createElement("div");
-  msg.className = `msg ${role}`;
-  if (id) msg.dataset.messageId = id;
-  rawTextByMsgEl.set(msg, content);
-
-  const avatar = document.createElement("img");
-  avatar.className = "avatar";
-  avatar.src = role === "user" ? "../build/user-avatar.png" : "../build/mascot-cropped.png";
-  avatar.alt = role === "user" ? "我" : "小怪兽";
-  msg.appendChild(avatar);
-
-  const contentCol = document.createElement("div");
-  contentCol.className = "msg-content";
-  msg.appendChild(contentCol);
-
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.className = "msg-select-checkbox";
-  checkbox.addEventListener("change", () => {
-    msg.classList.toggle("selected", checkbox.checked);
-    const msgId = msg.dataset.messageId;
-    if (!msgId) return;
-    if (checkbox.checked) state.selectedMessageIds.add(msgId);
-    else state.selectedMessageIds.delete(msgId);
-    updateSelectionUi();
-  });
-  msg.appendChild(checkbox);
-
-  if (reasoning) {
-    const details = document.createElement("details");
-    details.className = "reasoning";
-    details.innerHTML = `<summary>思考过程</summary><div class="reasoning-body">${escapeHtml(reasoning)}</div>`;
-    contentCol.appendChild(details);
-  }
-
-  const bubble = document.createElement("div");
-  bubble.className = role === "user" ? "bubble" : "bubble markdown-body";
-  if (role === "user") {
-    bubble.textContent = content;
-  } else {
-    bubble.innerHTML = renderMarkdown(content);
-  }
-
-  // 历史消息里存的工具调用记录，还原成折叠块（默认收起，避免长记录刷屏）
-  if (toolCalls && toolCalls.length) {
-    contentCol.appendChild(buildToolCallsBlock(toolCalls));
-  }
-  contentCol.appendChild(bubble);
-
-  if (citations && citations.length) {
-    contentCol.appendChild(buildCitationChips(citations));
-  }
-
-  contentCol.appendChild(buildBubbleActions(msg, id, favorited));
-
-  wrap.appendChild(msg);
-  wrap.scrollTop = wrap.scrollHeight;
-  highlightAndRenderDiagrams(bubble);
-  return { msg, bubble, content: contentCol };
-}
-
-// ---------------- 发送消息（流式） ----------------
-let currentRequestId = null;
-let currentAssistantText = "";
-let currentReasoningText = "";
-let currentBubbleRefs = null;
-let currentUserMsgEl = null;
-let currentToolCallsEl = null;
-
-el("messageInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-});
-el("messageInput").addEventListener("input", (e) => {
-  e.target.style.height = "auto";
-  e.target.style.height = Math.min(160, e.target.scrollHeight) + "px";
-  el("messageInput").closest(".composer-input").classList.toggle("multiline", e.target.scrollHeight > 40);
-});
-el("sendBtn").addEventListener("click", () => {
-  if (state.sending) {
-    kb.chat.stop(currentRequestId);
-  } else {
-    sendMessage();
-  }
-});
-["ragToggle", "thinkingToggle"].forEach((id) => {
-  el(id).addEventListener("click", () => el(id).classList.toggle("active"));
-});
-
-async function sendMessage() {
-  if (state.sending) return;
-  const input = el("messageInput");
-  const text = input.value.trim();
-  if (!text) return;
-
-  if (!state.activeConversationId) {
-    state.activeConversationId = await kb.conversations.create(text.slice(0, 24));
-    await loadConversations();
-  } else {
-    // 走"+ 新建会话"创建的会话标题是写死的占位符"新会话"，第一次真正发消息时
-    // 得把它换成有意义的标题——不然点"+ 新建会话"进来聊的每个会话都永远叫"新会话"
-    const conv = state.conversations.find((c) => c.id === state.activeConversationId);
-    if (conv && conv.title === "新会话") {
-      await kb.conversations.rename(conv.id, text.slice(0, 24));
-      loadConversations();
-      el("chatTitle").textContent = text.slice(0, 24);
-    }
-  }
-
-  input.value = "";
-  input.style.height = "auto";
-  const { msg: userMsgEl } = appendMessageBubble("user", { content: text });
-  currentUserMsgEl = userMsgEl;
-
-  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  currentRequestId = requestId;
-  currentAssistantText = "";
-  currentReasoningText = "";
-  currentToolCallsEl = null;
-  state.sending = true;
-  el("sendBtn").textContent = "终止";
-  el("sendBtn").classList.add("stop");
-
-  const { msg, bubble, content } = appendMessageBubble("assistant", {});
-  bubble.classList.add("empty");
-  currentBubbleRefs = { msg, bubble, content };
-
-  await kb.chat.send({
-    conversationId: state.activeConversationId,
-    message: text,
-    ragEnabled: el("ragToggle").classList.contains("active"),
-    mcpEnabled: state.toolsEnabled && state.mcpHasTools,
-    thinkingEnabled: state.thinkingSupported && el("thinkingToggle").classList.contains("active"),
-    requestId,
-  });
-}
-
-kb.chat.onEvent((event) => {
-  if (event.requestId !== currentRequestId || !currentBubbleRefs) return;
-  const { bubble } = currentBubbleRefs;
-
-  if (event.type === "user-message-saved") {
-    if (currentUserMsgEl) currentUserMsgEl.dataset.messageId = event.messageId;
-  } else if (event.type === "delta") {
-    bubble.classList.remove("empty");
-    currentAssistantText += event.text;
-    rawTextByMsgEl.set(currentBubbleRefs.msg, currentAssistantText);
-    bubble.innerHTML = renderMarkdown(currentAssistantText);
-    highlightAndRenderDiagrams(bubble);
-    // 只有用户本来就停在底部（跟着看最新内容）才继续跟随滚动；
-    // 用户主动往上滑看历史的话，不该被每个 token 都拽回最底下——这就是"一闪一闪跳到最后"的原因
-    scrollToBottomIfFollowing();
-  } else if (event.type === "reasoning" || event.type === "reasoning-final") {
-    currentReasoningText += event.type === "reasoning-final" ? "" : event.text;
-    if (event.type === "reasoning-final") currentReasoningText = event.text;
-    let reasoningEl = currentBubbleRefs.content.querySelector(".reasoning");
-    if (!reasoningEl) {
-      reasoningEl = document.createElement("details");
-      reasoningEl.className = "reasoning";
-      reasoningEl.innerHTML = `<summary>思考中…</summary><div class="reasoning-body"></div>`;
-      currentBubbleRefs.content.insertBefore(reasoningEl, bubble);
-    }
-    reasoningEl.querySelector(".reasoning-body").textContent = currentReasoningText;
-  } else if (event.type === "tool-call") {
-    // 首次调用工具时创建一个折叠块，后续同轮的工具调用都追加进去
-    if (!currentToolCallsEl) {
-      currentToolCallsEl = document.createElement("details");
-      currentToolCallsEl.className = "tool-calls";
-      currentToolCallsEl.open = true;
-      currentToolCallsEl.innerHTML = `<summary>调用工具中…</summary><div class="tool-calls-body"></div>`;
-      currentBubbleRefs.content.insertBefore(currentToolCallsEl, bubble);
-    }
-    const entry = document.createElement("div");
-    entry.className = "tool-call-entry";
-    // 去掉前缀（builtin__ / serverName__），只显示工具名
-    const displayName = event.name.includes("__") ? event.name.split("__").slice(1).join("__") : event.name;
-    entry.innerHTML = `<div class="tool-call-name">🔧 ${escapeHtml(displayName)}</div><div class="tool-call-status">执行中…</div>`;
-    // 用 tool_call_id 精确匹配结果——同一轮里可能有两个同名工具调用，
-    // 按名字匹配会把第二个调用的结果更新到第一个 entry 上，第二个永远卡在"执行中"
-    entry.dataset.callId = event.id || "";
-    entry.dataset.toolName = event.name;
-    currentToolCallsEl.querySelector(".tool-calls-body").appendChild(entry);
-    // 更新 summary 计数
-    const count = currentToolCallsEl.querySelector(".tool-calls-body").children.length;
-    currentToolCallsEl.querySelector("summary").textContent = `调用了 ${count} 个工具`;
-  } else if (event.type === "tool-result") {
-    // 找到对应的 tool-call entry，更新状态（优先按 callId 精确匹配，没有 id 的老数据按名字兜底）
-    if (currentToolCallsEl) {
-      const entries = currentToolCallsEl.querySelector(".tool-calls-body").children;
-      for (const entry of entries) {
-        const matched = event.id ? entry.dataset.callId === event.id : entry.dataset.toolName === event.name;
-        if (matched && entry.querySelector(".tool-call-status")) {
-          const statusEl = entry.querySelector(".tool-call-status");
-          try {
-            const parsed = JSON.parse(event.result);
-            // 截取前 200 字符做预览，完整内容太长
-            const preview = typeof parsed === "string" ? parsed : JSON.stringify(parsed);
-            statusEl.textContent = preview.length > 200 ? preview.slice(0, 200) + "…" : preview;
-          } catch {
-            statusEl.textContent = event.result?.slice(0, 200) || "完成";
-          }
-          statusEl.className = "tool-call-result";
-          break;
-        }
-      }
-    }
-  } else if (event.type === "done") {
-    bubble.classList.remove("empty");
-    // 工具调用路径下没有流式 reasoning 事件，思考过程只在 done 里带过来——
-    // 如果流式阶段没建过 reasoning 元素，这里补建一个
-    if (event.reasoning && !currentBubbleRefs.content.querySelector(".reasoning")) {
-      const reasoningEl = document.createElement("details");
-      reasoningEl.className = "reasoning";
-      reasoningEl.innerHTML = `<summary>思考过程</summary><div class="reasoning-body"></div>`;
-      reasoningEl.querySelector(".reasoning-body").textContent = event.reasoning;
-      currentBubbleRefs.content.insertBefore(reasoningEl, bubble);
-    }
-    const doneCitations = event.citations || [];
-    if (doneCitations.length) {
-      currentBubbleRefs.content.appendChild(buildCitationChips(doneCitations));
-    }
-    // 探测到模型支持思考模式就立刻把开关亮出来，不用等重启或者手动点检测
-    if (event.detectedThinkingSupport && el("thinkingToggle").hidden) {
-      updateThinkingToggleVisibility(true);
-    }
-    endSending();
-    loadConversations();
-  } else if (event.type === "saved") {
-    // 消息真正落库后才有 id——收藏按钮靠 msg.dataset.messageId 判断能不能点，
-    // 之前这里没接，刚流完的消息永远拿不到 id，点收藏就是纯静默的 no-op
-    if (event.messageId) currentBubbleRefs.msg.dataset.messageId = event.messageId;
-  } else if (event.type === "stopped") {
-    bubble.classList.remove("empty");
-    if (!currentAssistantText) bubble.innerHTML = renderMarkdown("_已终止_");
-    if (event.messageId) currentBubbleRefs.msg.dataset.messageId = event.messageId;
-    endSending();
-    loadConversations();
-  } else if (event.type === "error") {
-    bubble.classList.remove("empty");
-    bubble.innerHTML = renderMarkdown(`⚠️ 出错了：${event.message}`);
-    endSending();
-  }
-});
-
-function endSending() {
-  state.sending = false;
-  const btn = el("sendBtn");
-  btn.disabled = false;
-  btn.textContent = "发送";
-  btn.classList.remove("stop");
 }
 
 // ---------------- 知识库视图 ----------------
@@ -722,6 +296,27 @@ async function refreshKnowledgeView() {
 }
 
 // ---------------- 收藏视图 ----------------
+// favorites 视图还是原生 DOM（待迁 Vue），需要构造 citation chip。
+// 对话层的 buildCitationChips 已随消息渲染一起删了，这里给 favorites 单独留一份。
+function buildCitationChips(citations) {
+  const citeWrap = document.createElement("div");
+  citeWrap.className = "citations";
+  citations.forEach((c, i) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "citation-chip";
+    const isUrl = /^https?:\/\//.test(c.path);
+    chip.title = isUrl ? `点击在浏览器中打开：${c.path}` : `点击在 Finder 中查看：${c.path}`;
+    chip.textContent = `[来源${i + 1}] ${c.filename}`;
+    chip.addEventListener("click", () => {
+      if (isUrl) kb.shell.openExternal(c.path);
+      else kb.documents.openInFinder(c.path);
+    });
+    citeWrap.appendChild(chip);
+  });
+  return citeWrap;
+}
+
 function formatFavoritedAt(ts) {
   const d = new Date(ts);
   const pad = (n) => String(n).padStart(2, "0");
@@ -1260,13 +855,15 @@ el("saveSystemPromptBtn").addEventListener("click", async () => {
   setTimeout(() => (el("systemPromptSaveHint").textContent = ""), 2000);
 });
 
+// 工具可用性 / 思考模式开关可见性：同步到 Vue store，Composer 读 store 决定是否显示思考模式开关、
+// 是否允许工具调用。思考模式开关现在是 Composer 内部（v-if store.thinkingSupported），不再有 #thinkingToggle 元素。
 function updateToolAvailability(hasTools) {
   state.mcpHasTools = hasTools;
+  if (window.kbStore?.store) window.kbStore.store.mcpHasTools = hasTools;
 }
 function updateThinkingToggleVisibility(supported) {
   state.thinkingSupported = supported;
-  el("thinkingToggle").hidden = !supported;
-  if (!supported) el("thinkingToggle").classList.remove("active");
+  if (window.kbStore?.store) window.kbStore.store.thinkingSupported = supported;
 }
 
 // ---------------- 外部链接一律走系统默认程序打开（mailto / http 等）----------------
@@ -1298,18 +895,13 @@ kb.app.onShowOnboarding(() => {
 
 // ---------------- 桥接：暴露给 Vue 组件（ConversationList 等）调用的回调 ----------------
 // app.js 先于 app-vue.js 执行，这里挂自己的命名空间 window.kbAppBridge，不依赖 app-vue.js 的 kbStore。
-// Vue 组件切会话/重命名/删除时通过这个 bridge 通知 app.js 同步它还管着的消息 DOM 和顶部标题。
+// Vue 组件切会话/删除时通过这个 bridge 调 app.js 的 switchView/showConfirm；
+// 消息 DOM 和顶部标题已由 ChatView 接管，不再需要 setChatTitle。
 window.kbAppBridge = {
-  // 切会话：app.js 同步消息 DOM（Vue 的 store.loadConversation 负责更新 store.messages）
-  openConversation,
-  // 重命名当前会话后同步顶部标题
-  setChatTitle: (title) => { el("chatTitle").textContent = title; },
-  // 切视图
+  // 切视图（ConversationList 切会话后调，把对话视图亮出来）
   switchView,
   // 复用 app.js 的自定义确认框（还没迁 Vue）
   showConfirm,
-  // 当前活跃会话 id（Vue 侧也能从 store 读，这里给 app.js 旧逻辑兼容）
-  getActiveConversationId: () => state.activeConversationId,
 };
 
 // ---------------- 初始化 ----------------

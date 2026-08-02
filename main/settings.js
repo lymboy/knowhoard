@@ -14,6 +14,8 @@ const DEFAULTS = {
     maxTokens: "",
   },
   ragDefaultEnabled: true,
+  // 对话开关状态持久化：用户上次设的思考/检索开关，下次进来直接恢复，不用每次重选
+  chatThinkingEnabled: false,
   autoSyncOnLaunch: true,
   autoSyncIntervalMinutes: 20,
   hasSeenOnboarding: false,

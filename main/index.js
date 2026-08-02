@@ -19,6 +19,13 @@ const AUTHOR_BLURB =
 
 app.setName(APP_NAME); // 必须在 app 'ready' 之前调用，否则开发模式下菜单栏可能仍显示 "Electron"
 
+// 开发模式开 remote debugging 端口，方便 chrome-devtools MCP 连上看渲染层 Console
+// 必须在 app ready 之前调 appendSwitch 才生效
+if (process.env.NODE_ENV !== "production") {
+  app.commandLine.appendSwitch("remote-debugging-port", "9223");
+  app.commandLine.appendSwitch("remote-allow-origins", "*");
+}
+
 let mainWindow = null;
 let lastAiStatus = null; // 窗口/渲染进程还没就绪时状态事件就先发出来了，缓存最新一条，页面加载完补发一次
 
@@ -126,6 +133,10 @@ function createWindow() {
     },
   });
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  // 开发模式自动打开 DevTools，方便排查 Vue 迁移期的渲染层报错
+  if (process.env.NODE_ENV !== "production" && !process.env.KB_NO_DEVTOOLS) {
+    mainWindow.webContents.once("dom-ready", () => mainWindow.webContents.openDevTools({ mode: "detach" }));
+  }
   // 模型预热可能在渲染进程的监听器还没挂上之前就已经在发状态了，页面刚加载完这里补发一次，
   // 不然状态事件全被早发的那几条白白扔掉，界面永远卡在写死的默认文案上
   mainWindow.webContents.once("did-finish-load", () => {
@@ -142,6 +153,8 @@ function createWindow() {
 
 let autoSyncTimer = null;
 let autoSyncRunning = false;
+// 退出前 flush 进行中流式的函数，由 registerIpcHandlers 返回，whenReady 里赋值，before-quit 用
+let flushPendingChats = null;
 
 // 增删改都要能感知到，尤其是删除——用户删掉一份含密码的文档，索引里也得跟着清掉，
 // 这不是"锦上添花"，是数据隐私的底线。不需要实时，定期跑一遍 MD5 diff 同步就够了：
@@ -214,7 +227,8 @@ app.whenReady().then(async () => {
   createWindow();
   // 传函数而不是当时那个窗口对象快照——这些 handler 只在启动时注册一次，
   // 但窗口可能关了又通过 Dock 图标重新建一个新的，用函数才能每次都拿到当前活着的窗口
-  registerIpcHandlers({ getWindow: () => mainWindow, aiClient, mcpManager, userDataPath });
+  const ipcApi = registerIpcHandlers({ getWindow: () => mainWindow, aiClient, mcpManager, userDataPath });
+  flushPendingChats = ipcApi.flushPendingChats;
   scheduleAutoSync(aiClient);
 
   // 预热跟"要不要检索本地知识库"这个开关完全无关——不管开没开，本地模型都该提前热好，
@@ -229,8 +243,19 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on("before-quit", () => {
+// 退出前收尾：把进行中的流式问答 abort 掉（触发它们把已流出的内容落库），等落库完成再真正退出。
+// 不做这一步的话，关窗/pkill 时正在生成的助手消息会整条丢失（之前要等 done 才写库）
+let isQuitting = false;
+app.on("before-quit", (event) => {
   if (autoSyncTimer) clearInterval(autoSyncTimer);
+  if (isQuitting) return;
+  isQuitting = true;
+  event.preventDefault();
+  // abort 全部 + 等落库（最多等 2 秒，避免卡死退出）
+  Promise.race([
+    flushPendingChats(),
+    new Promise((r) => setTimeout(r, 2000)),
+  ]).finally(() => app.exit());
 });
 
 app.on("window-all-closed", () => {

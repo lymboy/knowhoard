@@ -86,8 +86,9 @@ function compileVueFile(file) {
 function buildOne(file) {
   const { code, css, baseName } = compileVueFile(file);
   fs.writeFileSync(path.join(OUT_DIR, `${baseName}.js`), code, "utf-8");
-  if (css) fs.writeFileSync(path.join(OUT_DIR, `${baseName}.css`), css, "utf-8");
+  // css 不再单独写文件，由 main() 合并成单个 components.css 供 index.html 一次性引入
   console.log(`[build-vue] ${baseName}.js 生成完成${css ? " + css" : ""}`);
+  return css ? { baseName, css } : null;
 }
 
 function copyRuntime() {
@@ -107,7 +108,16 @@ function main() {
     return;
   }
   try {
-    vueFiles.forEach(buildOne);
+    // 收集每个组件的 css，合并成单个 components.css 供 index.html 一次性 <link> 引入
+    // （之前每个组件单独写 .css 但没人引，scoped 样式不生效，导致按钮窄、布局塌）
+    const cssList = [];
+    vueFiles.forEach((f) => {
+      const r = buildOne(f);
+      if (r) cssList.push(`/* ${r.baseName}.vue */\n${r.css}`);
+    });
+    const combinedCssPath = path.join(ROOT, "renderer", "vendor", "components.css");
+    fs.writeFileSync(combinedCssPath, cssList.join("\n\n"), "utf-8");
+    console.log("[build-vue] components.css 合并完成");
   } catch (err) {
     console.error(err);
     process.exit(1);
