@@ -1,5 +1,8 @@
 /* global marked, DOMPurify, hljs, mermaid, kb, renderMathInElement */
 
+// Mermaid 主题跟随当前页面主题（亮/暗），不能写死深色——
+// 亮色主题下深色节点配浅色文字完全看不清
+const isDarkTheme = document.documentElement.dataset.theme === "dark";
 mermaid.initialize({
   startOnLoad: false,
   theme: "base",
@@ -7,24 +10,43 @@ mermaid.initialize({
   flowchart: { useMaxWidth: false, htmlLabels: true, curve: "basis" },
   sequence: { useMaxWidth: false },
   gantt: { useMaxWidth: false },
-  themeVariables: {
-    primaryColor: "#362f6b",
-    primaryTextColor: "#e8e6f0",
-    primaryBorderColor: "#5a50a0",
-    lineColor: "#8b80d4",
-    secondaryColor: "#241f3a",
-    tertiaryColor: "#1e1933",
-    background: "transparent",
-    mainBkg: "#241f3a",
-    nodeBorder: "#5a50a0",
-    clusterBkg: "transparent",
-    clusterBorder: "#3d3570",
-    titleColor: "#e8e6f0",
-    edgeLabelBackground: "#1a1829",
-    textColor: "#e8e6f0",
-    fontSize: "13px",
-    fontFamily: "'JetBrains Mono', 'Noto Sans SC', sans-serif",
-  },
+  themeVariables: isDarkTheme
+    ? {
+        primaryColor: "#21262d",
+        primaryTextColor: "#e6edf3",
+        primaryBorderColor: "#8b949e",
+        lineColor: "#8b949e",
+        secondaryColor: "#161b22",
+        tertiaryColor: "#0d1117",
+        background: "transparent",
+        mainBkg: "#21262d",
+        nodeBorder: "#8b949e",
+        clusterBkg: "transparent",
+        clusterBorder: "#30363d",
+        titleColor: "#e6edf3",
+        edgeLabelBackground: "#161b22",
+        textColor: "#e6edf3",
+        fontSize: "14px",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif",
+      }
+    : {
+        primaryColor: "#f6f8fa",
+        primaryTextColor: "#1f2328",
+        primaryBorderColor: "#57606a",
+        lineColor: "#57606a",
+        secondaryColor: "#ffffff",
+        tertiaryColor: "#f6f8fa",
+        background: "transparent",
+        mainBkg: "#f6f8fa",
+        nodeBorder: "#57606a",
+        clusterBkg: "transparent",
+        clusterBorder: "#d1d9e0",
+        titleColor: "#1f2328",
+        edgeLabelBackground: "#ffffff",
+        textColor: "#1f2328",
+        fontSize: "14px",
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif",
+      },
 });
 
 marked.setOptions({

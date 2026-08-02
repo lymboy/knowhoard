@@ -318,11 +318,14 @@ html, body {
 .avatar {
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  min-height: 34px;
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
   margin-top: 2px;
   background: var(--bg-elevated-2);
+  border: 1px solid var(--border);
 }
 .msg-content {
   display: flex;
@@ -338,22 +341,24 @@ html, body {
   align-items: flex-start;
 }
 .bubble {
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: var(--radius);
-  line-height: 1.65;
+  line-height: 1.7;
 }
 .msg.user .bubble {
   background: var(--accent);
-  color: #1b0a12;
+  color: #fff;
   border-bottom-right-radius: 4px;
   max-width: 72%;
   white-space: pre-wrap;
+  box-shadow: 0 2px 8px rgba(255, 95, 143, 0.25);
 }
 .msg.assistant .bubble {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
   width: 100%;
+  box-shadow: var(--shadow);
 }
 .msg.assistant .bubble.empty::after {
   content: "";
@@ -369,93 +374,87 @@ html, body {
   50% { opacity: 1; }
 }
 
-/* 回答正文的排版细节——光靠浏览器默认样式渲染 markdown 会显得很生，这里对齐 ChatGPT/豆包那种
-   有节奏感的排版：标题分量够、列表间距舒展、加粗清晰、分隔线克制 */
+/* ================================================================
+   对话内容排版 — GitHub-dark 风格
+   ================================================================ */
+
 .bubble { font-size: 14px; }
-/* github-markdown-css 自带背景色/字色/字体，会跟气泡自己的配色打架，这里退回去交给气泡控制，
-   排版（标题层级、列表、表格间距等）还是用它的，那部分做得比我手写的更成熟 */
 .bubble.markdown-body {
   background: transparent !important;
   color: inherit !important;
   font-family: inherit !important;
 }
-.bubble p { margin: 10px 0; }
+
+/* 段落和标题 */
+.bubble p { margin: 10px 0; line-height: 1.75; }
 .bubble p:first-child { margin-top: 0; }
 .bubble p:last-child { margin-bottom: 0; }
-.bubble a { color: var(--accent-2); text-decoration: underline; text-underline-offset: 2px; }
+.bubble a { color: #0969da; text-decoration: underline; text-underline-offset: 2px; }
+.bubble a:hover { color: #0550ae; }
+:root[data-theme="dark"] .bubble a { color: #8fd6ff; }
+:root[data-theme="dark"] .bubble a:hover { color: #b5e3ff; }
 .bubble h1, .bubble h2, .bubble h3, .bubble h4 {
   font-weight: 700;
   line-height: 1.4;
   margin: 22px 0 10px;
 }
-.bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child, .bubble h4:first-child {
-  margin-top: 2px;
-}
-.bubble h1 { font-size: 1.5em; }
-.bubble h2 { font-size: 1.32em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.bubble h3 { font-size: 1.15em; }
-.bubble h4 { font-size: 1.05em; color: var(--text-dim); }
+.bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child, .bubble h4:first-child { margin-top: 2px; }
+.bubble h1 { font-size: 1.45em; }
+.bubble h2 { font-size: 1.3em; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.bubble h3 { font-size: 1.12em; }
+.bubble h4 { font-size: 1.02em; color: var(--text-dim); }
 .bubble strong { font-weight: 700; color: var(--text); }
-.bubble ul, .bubble ol {
-  margin: 10px 0;
-  padding-left: 1.5em;
-}
-.bubble li {
-  margin: 5px 0;
-  line-height: 1.7;
-}
-.bubble li::marker {
-  color: var(--accent);
-  font-weight: 600;
-}
-.bubble li > ul, .bubble li > ol {
-  margin: 4px 0;
-}
-.bubble hr {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 18px 0;
-}
-.bubble img {
-  max-width: 100%;
-  border-radius: 10px;
-}
+
+/* 列表 */
+.bubble ul, .bubble ol { margin: 10px 0; padding-left: 1.5em; }
+.bubble li { margin: 5px 0; line-height: 1.75; }
+.bubble li::marker { color: var(--accent); font-weight: 600; }
+.bubble li > ul, .bubble li > ol { margin: 4px 0; }
+.bubble hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+.bubble img { max-width: 100%; border-radius: 10px; }
+
+/* ---------- 代码块（深色底，两种主题下都通用，GitHub 白底主题也是深色代码块） ---------- */
 .code-block {
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid #30363d;
+  border-radius: 8px;
   overflow: hidden;
-  margin: 10px 0;
-  background: #0a0916;
+  margin: 12px 0;
+  background: #0d1117;
 }
 .code-block-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 12px;
-  background: var(--bg-elevated-2);
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-dim);
-  letter-spacing: 0.02em;
+  padding: 6px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  font-size: 12px;
+  color: #8b949e;
 }
 .code-block-header .lang {
-  text-transform: uppercase;
   font-weight: 600;
-  color: var(--accent-2);
+  color: #8b949e;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  font-size: 11px;
 }
 .code-block-header .copy-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
   border-radius: 6px;
-  padding: 3px 9px;
+  padding: 3px 10px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  transition: all 0.15s;
 }
 .code-block-header .copy-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: #f0f6fc;
+  border-color: #8b949e;
+  background: #30363d;
 }
+
+/* 代码块内容区 */
 .bubble pre {
   background: transparent;
   border: none;
@@ -466,53 +465,87 @@ html, body {
 }
 .bubble code {
   font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
-/* 自定义 token 配色，呼应品牌的深夜+珊瑚橘调性，而不是套用默认主题的原生感 */
-/* 代码块背景固定是深色（跟整体主题浅色/深色无关，深色代码块可读性更好），
-   所以这里的字色不能跟着 var(--text) 走——主题切成浅色后 --text 变成近黑色，
-   深底配近黑字幾乎看不见，这里必须用不随主题变化的固定浅色 */
-.hljs { background: transparent; color: #e5e2f5; }
-.hljs-comment, .hljs-quote { color: #8b86ad; font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #ff8fb3; }
-.hljs-string, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #9be3b0; }
-.hljs-number, .hljs-meta { color: #ffab8a; }
-.hljs-title, .hljs-name, .hljs-section, .hljs-selector-id { color: #8fd6ff; }
-.hljs-function .hljs-title, .hljs-built_in { color: #8fd6ff; }
-.hljs-variable, .hljs-template-variable, .hljs-attribute { color: #f1c987; }
-.hljs-tag { color: #b5b0d6; }
-.hljs-deletion { color: #ff8080; }
+/* 语法高亮（GitHub dark，深色代码块内通用） */
+.hljs { background: transparent; color: #e6edf3; }
+.hljs-comment, .hljs-quote { color: #8b949e; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #ff7b72; }
+.hljs-string, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #a5d6ff; }
+.hljs-number, .hljs-meta { color: #79c0ff; }
+.hljs-title, .hljs-name, .hljs-section, .hljs-selector-id { color: #d2a8ff; }
+.hljs-function .hljs-title, .hljs-built_in { color: #d2a8ff; }
+.hljs-variable, .hljs-template-variable, .hljs-attribute { color: #ffa657; }
+.hljs-tag { color: #7ee787; }
+.hljs-deletion { color: #ffa198; }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
+
+/* 行内代码（跟随主题） */
 .bubble :not(pre) > code {
-  background: var(--bg-elevated-2);
-  padding: 1px 6px;
+  background: rgba(175, 184, 193, 0.25);
+  color: #1f2328;
+  padding: 2px 7px;
   border-radius: 5px;
+  font-size: 0.88em;
 }
+:root[data-theme="dark"] .bubble :not(pre) > code {
+  background: rgba(110, 118, 129, 0.35);
+  color: #e6edf3;
+}
+
+/* ---------- 表格（跟随主题） ---------- */
 .bubble table {
   border-collapse: collapse;
   width: 100%;
-  margin: 8px 0;
+  margin: 10px 0;
+  border-radius: 8px;
+  overflow: hidden;
 }
-.bubble th, .bubble td {
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  font-size: 14.5px;
+.bubble th {
+  background: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  color: #1f2328;
 }
+.bubble td {
+  border: 1px solid #d1d9e0;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+.bubble tr:nth-child(even) td { background: rgba(0, 0, 0, 0.02); }
+:root[data-theme="dark"] .bubble th {
+  background: #161b22;
+  border-color: #30363d;
+  color: #e6edf3;
+}
+:root[data-theme="dark"] .bubble td {
+  border-color: #21262d;
+}
+:root[data-theme="dark"] .bubble tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
+
+/* ---------- 引用块 ---------- */
 .bubble blockquote {
   border-left: 3px solid var(--accent);
-  margin: 8px 0;
-  padding: 2px 12px;
+  margin: 10px 0;
+  padding: 8px 14px;
   color: var(--text-dim);
+  background: var(--accent-soft);
+  border-radius: 0 8px 8px 0;
 }
+
+/* ---------- Mermaid 图表 ---------- */
 .mermaid-block {
   background: transparent;
   border: none;
-  border-radius: 0;
-  padding: 12px 0;
-  margin: 10px 0;
+  padding: 16px 0;
+  margin: 12px 0;
   overflow-x: auto;
   display: flex;
   justify-content: flex-start;
