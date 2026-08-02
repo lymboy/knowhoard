@@ -386,7 +386,7 @@ html, body {
 }
 
 /* 段落和标题 */
-.bubble p { margin: 10px 0; line-height: 1.75; }
+.bubble p { margin: 10px 0; line-height: 1.65; }
 .bubble p:first-child { margin-top: 0; }
 .bubble p:last-child { margin-bottom: 0; }
 .bubble a { color: #0969da; text-decoration: underline; text-underline-offset: 2px; }
@@ -407,7 +407,7 @@ html, body {
 
 /* 列表 */
 .bubble ul, .bubble ol { margin: 10px 0; padding-left: 1.5em; }
-.bubble li { margin: 5px 0; line-height: 1.75; }
+.bubble li { margin: 5px 0; line-height: 1.65; }
 .bubble li::marker { color: var(--accent); font-weight: 600; }
 .bubble li > ul, .bubble li > ol { margin: 4px 0; }
 .bubble hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
@@ -560,11 +560,11 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-elevated-2);
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 .reasoning summary {
   cursor: pointer;
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-size: 13.5px;
   color: var(--text-dim);
   user-select: none;
@@ -711,7 +711,7 @@ html, body {
   border: none;
   color: #1b0a12;
   font-weight: 600;
-  padding: 12px 26px;
+  padding: 11px 25px;
   border-radius: 999px;
   cursor: pointer;
   font-size: 15px;
@@ -1242,14 +1242,14 @@ button {
 
 /* 工具调用折叠块 */
 .tool-calls {
-  margin: 8px 0;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-elevated);
 }
 .tool-calls summary {
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-size: 13px;
   color: var(--text-dim);
   cursor: pointer;

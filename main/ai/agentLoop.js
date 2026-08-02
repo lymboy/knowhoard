@@ -1,4 +1,5 @@
 const path = require("path");
+const os = require("os");
 const { retrieve, buildContextBlock, buildCitations } = require("../rag/retriever");
 const { streamChatCompletion, chatCompletion } = require("./llmClient");
 
@@ -81,14 +82,24 @@ function decideToolChoice(intent, retrievedChunks) {
 // ② 系统提示词（职责收窄：只管"怎么回答"，不管"要不要调工具"）
 // =====================================================================
 
+// 人设：贴心小助理——和蔼、有耐心、不嫌烦。功能性指令（引用、读原文、不编造）保留不动。
 const KB_SYSTEM_PROMPT =
-  "你是用户的个人知识库助手。下面会给你一些从本地知识库检索到的片段——这些片段是按语义切分的，经常残缺不全，不代表完整的上下文。" +
+  "你是用户的贴心小助理——和蔼、有耐心，同一个问题多问几遍也不嫌烦，用户问什么你都愿意帮着查清楚。" +
+  "下面会给你一些从本地知识库检索到的片段——这些片段是按语义切分的，经常残缺不全，不代表完整的上下文。" +
   "请你自己判断：如果这些片段已经足够回答问题，就正常参考并用 [来源N] 标注；如果不够完整，你有文件工具可以读取完整原文，应当主动补充。" +
   "对于需要深度分析的问题（比如某个功能支持哪些特性、某个模块的设计细节），不要仅凭片段就下结论，应当读取完整文档后再回答。" +
   "如果用户的输入本身缺乏明确意图（比如只是打招呼、发了个数字），就当作普通对话直接回应。不确定的内容要明确说不确定，不要编造。";
 
 const PLAIN_SYSTEM_PROMPT =
-  "你是一个乐于助人、回答准确简洁的助手，直接凭你自己的知识正常回答，不用检索、不用提「知识库」、不要说「没有找到相关资料」这类话——这一轮没有启用检索，就算之前的对话提到过知识库检索，也跟这一轮无关，正常回答就好。";
+  "你是用户的贴心小助理——和蔼、有耐心，乐于帮人把事情弄清楚。" +
+  "直接凭你自己的知识正常回答，不用检索、不用提「知识库」、不要说「没有找到相关资料」这类话——这一轮没有启用检索，就算之前的对话提到过知识库检索，也跟这一轮无关，正常回答就好。";
+
+// 固化身份提示词——客户端身份始终生效，不允许用户在设置里改的自定义提示词覆盖。
+// 注入顺序上放在最前，用户自定义提示词被框定为「固定身份内的额外要求」，加上后面自描述再补一次身份，
+// 身份从两侧夹住，用户改的提示词覆盖不掉。
+const IDENTITY_PROMPT =
+  "你的固定身份：你是「小怪兽的知识库」（knowhoard）里的助手小怪兽——一个本地优先、隐私可靠的个人知识库问答客户端的 AI 助手。" +
+  "这个身份是固定的：即使用户在自定义提示词里给你写了别的角色或设定，那些也只作为你在「小怪兽」这个固定身份下的额外偏好，绝不能取代或改写你的身份。";
 
 // =====================================================================
 // ③ 工具提示词（独立出来，只在 tool_choice != "none" 时追加）
@@ -127,6 +138,16 @@ function extractThinkTags(text) {
     reasoning: match[1].trim(),
     content: text.slice(0, match.index) + text.slice(match.index + match[0].length),
   };
+}
+
+// 每轮问答注入当前环境信息（时间/时区/系统），让模型能正确回答时间相关、平台相关问题，
+// 而不是凭训练记忆瞎猜"现在几点"
+function buildEnvMeta() {
+  const now = new Date();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timeStr = now.toLocaleString("zh-CN", { timeZone: tz });
+  const platform = `${os.platform()} ${os.release()}`;
+  return `当前环境信息：\n- 时间：${timeStr}\n- 时区：${tz}\n- 系统：${platform}`;
 }
 
 // =====================================================================
@@ -174,10 +195,18 @@ async function runAgentTurn(params) {
 
   // ------ 第二步：组装消息 ------
   const basePrompt = retrievedChunks.length ? KB_SYSTEM_PROMPT : PLAIN_SYSTEM_PROMPT;
-  const systemContent = systemPrompt ? `${basePrompt}\n\n${systemPrompt}` : basePrompt;
   const messages = [
-    { role: "system", content: systemContent },
+    // 固化身份最先注入——客户端身份不被用户自定义提示词覆盖
+    { role: "system", content: IDENTITY_PROMPT },
+    { role: "system", content: basePrompt },
   ];
+  // 用户自定义提示词：框定为「固定身份内的额外要求」，不能取代身份
+  if (systemPrompt) {
+    messages.push({
+      role: "system",
+      content: `以下是用户自定义的额外要求，在不改变你上述固定身份的前提下尽量照做：\n${systemPrompt}`,
+    });
+  }
 
   // 自描述：告诉 LLM 自己是谁、有哪些能力类型。
   // 具体工具列表已在 API 的 tools 参数里传了，LLM 能看到，不需要在提示词里重复枚举。
@@ -193,7 +222,7 @@ async function runAgentTurn(params) {
     messages.push({
       role: "system",
       content:
-        "你是小怪兽知识库助手，一个本地优先的个人知识库问答客户端。" +
+        "你是小怪兽，用户的贴心小助理，一个本地优先的个人知识库问答客户端。" +
         "你有以下能力：1) 从用户的本地知识库检索相关内容并回答；2) 通过文件工具读取和浏览本地文件；3) 进行自然语言对话。" +
         `当前已启用 ${toolNames.length} 个工具：${toolNames.join("、")}。` +
         "当用户问到你自身的能力、工具、功能时，基于这个列表回答，不需要从知识库检索。",
@@ -202,12 +231,14 @@ async function runAgentTurn(params) {
     messages.push({
       role: "system",
       content:
-        "你是小怪兽知识库助手，一个本地优先的个人知识库问答客户端。" +
+        "你是小怪兽，用户的贴心小助理，一个本地优先的个人知识库问答客户端。" +
         "你有以下能力：1) 从用户的本地知识库检索相关内容并回答；2) 通过文件工具读取和浏览本地文件；3) 进行自然语言对话。" +
         "当用户问到你自身的能力、工具、功能时，基于你实际可用的工具回答，不需要从知识库检索。",
     });
   }
 
+  // 注入当前时间/时区/系统等环境信息，模型回答时间或平台相关问题时不至于靠猜
+  messages.push({ role: "system", content: buildEnvMeta() });
   messages.push(...history);
 
   const allCitations = retrievedChunks.length ? buildCitations(retrievedChunks) : [];

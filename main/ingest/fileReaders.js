@@ -58,12 +58,24 @@ async function readFileContent(filePath) {
  * 索引全部清空。只有递归到子目录时读失败才可以跳过（放过一个子目录不至于把全部数据搞丢）。
  */
 async function walkDirectory(rootPath) {
+  // 第一道闸：所有点开头的条目（隐藏文件 + 隐藏目录）一律跳过。这一条就覆盖了绝大多数噪音：
+  //   - 版本控制：.git .svn .hg
+  //   - IDE 配置：.idea .vscode .vs .fleet .zed .settings（Eclipse 的 .project/.classpath 也在此）
+  //   - 工具缓存：.gradle .mypy_cache .pytest_cache .parcel-cache .turbo .svelte-kit .expo .terraform .terragrunt-cache .next .nuxt .cache
+  //   - Obsidian/系统：.obsidian .trash .DS_Store
+  //   - 环境与配置文件：.venv .env .env.local .editorconfig .gitignore .npmrc
+  // 下面 SKIP_DIRS 只补「名字不以点开头、但属于依赖/构建/缓存」的目录——这些不会被点开头规则捕获。
   const SKIP_DIRS = new Set([
-    ".git",
-    ".obsidian",
-    ".trash",
-    "node_modules",
-    ".DS_Store",
+    // 依赖目录
+    "node_modules", "bower_components",
+    // 构建/编译输出（Maven target、通用 dist/build/out、Cargo target）
+    "dist", "build", "out", "target",
+    // 语言运行时缓存/虚拟环境
+    "__pycache__", "venv",
+    // 测试覆盖率/日志/临时（常见 .gitignore 项）
+    "coverage", "logs", "tmp",
+    // 移动端依赖（CocoaPods）
+    "Pods",
   ]);
   const results = [];
 
@@ -76,10 +88,10 @@ async function walkDirectory(rootPath) {
       return; // 子目录读不了，跳过这一个子目录就好
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") && entry.name !== ".") {
-        if (SKIP_DIRS.has(entry.name)) continue;
-        if (entry.isDirectory()) continue; // 其他隐藏目录默认也跳过
-      }
+      // 隐藏文件 + 隐藏目录（点开头）一律跳过
+      if (entry.name.startsWith(".")) continue;
+      // 非隐藏但属于依赖/构建/缓存的目录跳过
+      if (SKIP_DIRS.has(entry.name)) continue;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(fullPath, false);
