@@ -12,7 +12,7 @@ function render(_ctx, _cache) {
         class: "citation-chip",
         title: _ctx.isUrl(c.path) ? ('点击在浏览器中打开：' + c.path) : ('点击在 Finder 中查看：' + c.path),
         onClick: $event => (_ctx.openCitation(c))
-      }, "[来源" + _toDisplayString(i + 1) + "] " + _toDisplayString(c.filename), 9 /* TEXT, PROPS */, _hoisted_2))
+      }, "[来源" + _toDisplayString(c.num || (i + 1)) + "] " + _toDisplayString(c.filename), 9 /* TEXT, PROPS */, _hoisted_2))
     }), 128 /* KEYED_FRAGMENT */))
   ]))
 }

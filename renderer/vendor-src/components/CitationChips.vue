@@ -7,7 +7,7 @@
       class="citation-chip"
       :title="isUrl(c.path) ? ('点击在浏览器中打开：' + c.path) : ('点击在 Finder 中查看：' + c.path)"
       @click="openCitation(c)"
-    >[来源{{ i + 1 }}] {{ c.filename }}</button>
+    >[来源{{ c.num || (i + 1) }}] {{ c.filename }}</button>
   </div>
 </template>
 

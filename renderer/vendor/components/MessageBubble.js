@@ -130,7 +130,7 @@ export default { render,
   },
   mounted() {
     if (this.msg.role !== "user") {
-      this.htmlContent = renderMarkdown(this.msg.content || "");
+      this.htmlContent = renderMarkdown(this.cleanContent(this.msg.content || ""));
       if (!this.msg.streaming) this.$nextTick(() => this.enhance());
     }
   },
@@ -138,6 +138,21 @@ export default { render,
     if (this._htmlTimer) clearTimeout(this._htmlTimer);
   },
   methods: {
+    // 清理正文里模型幻觉标出的超范围 [来源N]：只保留 citations 里真实存在的编号，
+    // 不存在的 [来源N] 删掉。这样正文只显示真实来源编号，和气泡下引用列表一致——
+    // 根治模型标了 [来源9] 但只有 7 个来源导致正文/列表数量对不上的问题。
+    // 之前靠提示词约束模型不标超范围编号，但模型仍偶发幻觉，这里渲染兜底清理。
+    cleanContent(content) {
+      const cits = this.msg.citations || [];
+      if (!cits.length) return content; // 没有引用就不清理（避免误删）
+      // 用 citations 里的真实编号 num（后端 filterReferencedCitations 带 num），
+      // 兼容老数据没 num 时按数组下标+1
+      const validNums = new Set(cits.map((c, i) => c.num || i + 1));
+      // 把不在 validNums 的 [来源N] 删掉。保留存在的——正文只显示真实来源编号，和引用列表一致
+      return content.replace(/\[来源(\d+)\]/g, (match, n) => {
+        return validNums.has(Number(n)) ? match : "";
+      });
+    },
     // 节流渲染 markdown：每 token 都 renderMarkdown 全量解析会阻塞主线程。
     // 用"固定间隔"节流——距上次渲染 ≥150ms 就立即渲染，否则跳过（下次 delta 再判断）。
     // 不能用 setTimeout 重置式节流：token 间隔 <150ms 时 timer 被不断重置，流式期间一次都不渲染，
@@ -146,13 +161,13 @@ export default { render,
       if (this._htmlTimer) { clearTimeout(this._htmlTimer); this._htmlTimer = null; }
       if (force) {
         this._lastRenderAt = 0;
-        this.htmlContent = renderMarkdown(this.msg.content || "");
+        this.htmlContent = renderMarkdown(this.cleanContent(this.msg.content || ""));
         return;
       }
       const now = Date.now();
       if (now - (this._lastRenderAt || 0) >= 150) {
         this._lastRenderAt = now;
-        this.htmlContent = renderMarkdown(this.msg.content || "");
+        this.htmlContent = renderMarkdown(this.cleanContent(this.msg.content || ""));
       }
     },
     enhance() {

@@ -1,7 +1,7 @@
 {
   "name": "knowhoard",
   "productName": "小怪兽知识库",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "本地优先的个人知识库问答客户端：本地 embedding + 本地重排 + 自定义 OpenAI 兼容 LLM，支持 Obsidian vault 连接器。",
   "private": true,
   "license": "MIT",
@@ -36,10 +36,12 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@vue/compiler-sfc": "^3.5.40",
     "electron": "^33.4.9",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.1",
+    "vite": "^8.2.0",
     "vue": "^3.5.40"
   },
   "build": {

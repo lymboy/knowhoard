@@ -121,13 +121,38 @@ const TOOL_GUIDELINES =
 // =====================================================================
 
 // 只有回答里真的出现过 [来源N] 才把对应引用展示出来——检索到的片段不代表模型真的用了，
-// 没被引用的文件名不该出现在界面上，这也是对着屏幕分享/截图时少一点意外泄露的考虑
+// 没被引用的文件名不该出现在界面上，这也是对着屏幕分享/截图时少一点意外泄露的考虑。
+//
+// 编号连续化：模型可能只引用了 [来源1][来源3][来源4]（跳过2），直接显示原始编号会断开。
+// 按模型在正文里引用的【出现顺序】重新连续编号成 1、2、3，同时把正文里的 [来源旧N] 同步
+// 替换成 [来源新N]，保证正文编号和引用列表编号一致且连续。
+// 返回 { citations: 带新 num 的引用列表, content: 重映射编号后的正文 }
 function filterReferencedCitations(content, allCitations) {
-  const referenced = new Set();
+  // 按正文里 [来源N] 出现的顺序，收集模型实际引用的来源（去重，保留首次出现顺序）
+  const seenOrder = [];
+  const seen = new Set();
   const re = /\[来源(\d+)\]/g;
   let m;
-  while ((m = re.exec(content))) referenced.add(Number(m[1]));
-  return allCitations.filter((_, idx) => referenced.has(idx + 1));
+  while ((m = re.exec(content))) {
+    const n = Number(m[1]);
+    if (!seen.has(n) && n >= 1 && n <= allCitations.length) {
+      seen.add(n);
+      seenOrder.push(n);
+    }
+  }
+  // 旧编号 → 新连续编号（1..N）
+  const remap = new Map();
+  const citations = seenOrder.map((oldNum, i) => {
+    const newNum = i + 1;
+    remap.set(oldNum, newNum);
+    return { ...allCitations[oldNum - 1], num: newNum };
+  });
+  // 正文里 [来源旧N] 替换成 [来源新N]（模型标了但不在 allCitations 范围的幻觉编号会被删掉）
+  const newContent = content.replace(/\[来源(\d+)\]/g, (match, n) => {
+    const newN = remap.get(Number(n));
+    return newN ? `[来源${newN}]` : "";
+  });
+  return { citations, content: newContent };
 }
 
 function extractThinkTags(text) {
@@ -344,17 +369,27 @@ async function runAgentTurn(params) {
             const result = await mcpManager.callTool(call.function.name, args, toolCtx);
             toolResultText = JSON.stringify(result);
 
-            // 跟踪 read_file / fetch_url 读到的来源，分配引用编号
+            // 跟踪 read_file / fetch_url 读到的来源，分配引用编号。
+            // 关键：同一篇文档（同 path）如果在检索来源（allCitations）里已经有了，复用那个编号，
+            // 不新建——否则同一篇「技术方案.md」会被编成 [来源1]（检索）和 [来源5]（工具）两个号，
+            // 模型标号对不上。来源语义是「原始文档」级别，不是 chunk/工具读取次数级别。
             if (call.function.name === "builtin__read_file" || call.function.name === "builtin__fetch_url") {
               try {
                 const parsed = typeof result === "string" ? JSON.parse(result) : result;
                 const sourcePath = parsed?.path || parsed?.url;
-                if (sourcePath && !toolReadSources.some((s) => s.path === sourcePath)) {
-                  toolReadSources.push({
-                    path: sourcePath,
-                    filename: parsed.title || path.basename(sourcePath),
-                    snippet: (parsed.content || parsed.text || "").slice(0, 120),
-                  });
+                if (sourcePath) {
+                  // 先看检索来源里有没有同 path 的文档，有就复用其编号
+                  const existingInAll = allCitations.findIndex((s) => s.path === sourcePath);
+                  const existingInTool = toolReadSources.findIndex((s) => s.path === sourcePath);
+                  if (existingInAll >= 0 || existingInTool >= 0) {
+                    // 已有，不新建（编号复用，模型基于工具内容回答时引用已有编号）
+                  } else {
+                    toolReadSources.push({
+                      path: sourcePath,
+                      filename: parsed.title || path.basename(sourcePath),
+                      snippet: (parsed.content || parsed.text || "").slice(0, 120),
+                    });
+                  }
                 }
               } catch { /* 解析失败就不跟踪，不影响主流程 */ }
             }
@@ -438,14 +473,17 @@ async function runAgentTurn(params) {
   // 流式路径已逐 token 发过 delta，这里不再一次性发（否则前端 content 会叠加翻倍）。
   // 只有非流式兜底路径（MAX_ROUNDS 超限走 chatCompletion）才需要一次性发整个 content
   if (!streamedFinal) onEvent({ type: "delta", text: content });
-  // 引用列表 = 检索 chunk + 工具读取的来源，编号连续，
-  // 跟注入给 LLM 的「编号 → 文件」映射表严格一致
+  // 引用列表 = 检索 chunk + 工具读取的来源（工具来源已和检索去重，同 path 复用编号）
   const combinedCitations = [...allCitations, ...toolReadSources];
+  // 把模型引用的来源按出现顺序重新连续编号（1,2,3...），同时把正文里 [来源旧N] 同步
+  // 替换成 [来源新N]——根治引用列表编号断开（如 [来源1][来源3][来源4] 跳过2）的问题。
+  // done 事件带重映射后的 content，前端用它覆盖流式累计的原始 content（含旧编号）
+  const { citations, content: remappedContent } = filterReferencedCitations(content, combinedCitations);
   onEvent({
     type: "done",
-    content,
+    content: remappedContent,
     reasoning: thinkingEnabled ? allRoundReasoning : "",
-    citations: filterReferencedCitations(content, combinedCitations),
+    citations,
     toolCalls: toolCallLog,
   });
 }

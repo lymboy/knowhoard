@@ -247,7 +247,8 @@ export function handleChatEvent(event) {
     }
     case "done": {
       msg.streaming = false;
-      msg.content = msg.content || "（无法生成回答）";
+      // done 带的是重映射编号后的 content（[来源旧N]→[来源新N]，连续编号），覆盖流式累计的原始 content
+      msg.content = event.content || msg.content || "（无法生成回答）";
       if (event.reasoning && !msg.reasoning) msg.reasoning = event.reasoning;
       msg.citations = event.citations || [];
       // done 事件里如果带 toolCalls（落库的那批），用它覆盖流式收集的（落库版本更准，含 ok 状态）
