@@ -20,7 +20,7 @@
       <AiStatus class="ai-status" />
     </aside>
 
-    <main class="content">
+    <main class="content" :class="{ 'content--knowledge': store.view==='knowledge' }">
       <div v-show="store.view==='chat'" class="chat-view-wrap"><ChatView /></div>
       <FavoritesView v-show="store.view==='favorites'" />
       <KnowledgeView v-show="store.view==='knowledge'" />
@@ -174,10 +174,10 @@ export default {
    其余视图（设置/知识库/收藏）用统一的内边距 + 大屏限宽居中，避免右侧大段空白又不会顶满难读。
    chat 视图时 content 不自滚（ChatView 内部 messages 滚），其余视图 content 自己滚 */
 .content { flex: 1; min-width: 0; overflow: auto; background: var(--td-bg-color-page); }
-/* knowledge 视图：content 改 flex column，knowledge-view flex:1 被纯 flex 拉伸（任意视窗自适应，
-   不依赖 height:100% 百分比解析）。每层 flex column + flex:1 + min-height:0 才能正确分配空间 */
-.content:has(> .knowledge-view) { overflow: hidden; display: flex; flex-direction: column; }
-.content > .knowledge-view { flex: 1; min-height: 0; }
+/* knowledge 视图：content 改 flex column + overflow hidden，knowledge-view flex:1 撑满（内部 doc-list 滚）。
+   用动态 class（content--knowledge）不用 :has——v-show 让 knowledge-view 常驻 DOM，:has 会永远匹配误伤其他视图 */
+.content.content--knowledge { overflow: hidden; display: flex; flex-direction: column; }
+.content.content--knowledge > .knowledge-view { flex: 1; min-height: 0; }
 .content > .chat-view-wrap { padding: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
 /* 设置/收藏大屏限宽居中（响应式：4K 大屏不会窄成一条，小屏自适应填满）。
    知识库不在此限——它 flex:1 撑满 content（上方 :has 规则） */
@@ -189,6 +189,9 @@ export default {
 /* t-card body 默认左右 padding 是 --td-comp-paddingLR-xl（24px），输入框/表单被缩进显空白。
    统一收到 12px，内容贴边又不失呼吸感。设置/知识库/收藏的 panel 都受益 */
 .content .t-card__body { padding-left: 12px; padding-right: 12px; }
+/* 表单控件全部撑满 form-item，消除输入框内部白边 */
+.content .t-input, .content .t-textarea__inner, .content .t-select, .content .t-input-number,
+.content .t-textarea { width: 100%; }
 
 /* 对话区限宽：消息列表居中、气泡有上限，窗口拉宽时不会一边空一边挤。
    覆盖 styles.css 里 .messages > .msg 的 max-width:min(78%,1080px) */
