@@ -179,10 +179,11 @@ export default {
 .content:has(> .knowledge-view) { overflow: hidden; display: flex; flex-direction: column; }
 .content > .knowledge-view { flex: 1; min-height: 0; }
 .content > .chat-view-wrap { padding: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+/* 设置/收藏大屏限宽居中（响应式：4K 大屏不会窄成一条，小屏自适应填满）。
+   知识库不在此限——它 flex:1 撑满 content（上方 :has 规则） */
 .content > .favorites-view,
-.content > .knowledge-view,
 .content > .settings-view {
-  max-width: 1100px; margin: 0 auto; padding: 16px 20px 40px; box-sizing: border-box;
+  max-width: min(1400px, 92%); margin: 0 auto; padding: 16px 20px 40px; box-sizing: border-box;
 }
 
 /* t-card body 默认左右 padding 是 --td-comp-paddingLR-xl（24px），输入框/表单被缩进显空白。

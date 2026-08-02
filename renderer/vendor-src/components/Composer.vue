@@ -1,14 +1,13 @@
 <template>
   <div class="composer">
     <div class="composer-toggles">
-      <button type="button" class="mode-pill" :class="{ active: store.ragEnabled }" @click="toggleRag">检索本地知识库</button>
-      <button
+      <t-tag :checked="store.ragEnabled" @click="toggleRag" checkable theme="primary" variant="light">检索本地知识库</t-tag>
+      <t-tag
         v-if="store.thinkingSupported"
-        type="button"
-        class="mode-pill"
-        :class="{ active: store.thinkingEnabled }"
+        :checked="store.thinkingEnabled"
         @click="toggleThinking"
-      >思考模式</button>
+        checkable theme="primary" variant="light"
+      >思考模式</t-tag>
     </div>
     <div class="composer-input" :class="{ multiline: multiline }">
       <textarea
@@ -19,7 +18,7 @@
         @keydown="onKeydown"
         @input="autoResize"
       ></textarea>
-      <button @click="onSendClick">{{ store.sending ? '终止' : '发送' }}</button>
+      <t-button theme="primary" @click="onSendClick">{{ store.sending ? '终止' : '发送' }}</t-button>
     </div>
   </div>
 </template>
