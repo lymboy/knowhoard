@@ -181,9 +181,13 @@ function store_view() { return window.__STORE?.view; }
    flex-shrink:0 不被压缩，doc-panel flex:1 拿剩余大头 */
 .panel.src-panel { flex: 0 0 auto; max-height: 38%; min-height: 0; display: flex; flex-direction: column; }
 .panel.src-panel :deep(.t-card__header) { flex-shrink: 0; }
-.panel.src-panel :deep(.t-card__body) { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.panel.src-panel :deep(.t-loading__parent) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.panel.src-panel :deep(.t-card__body) { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .panel.doc-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .panel.doc-panel :deep(.t-card__header) { flex-shrink: 0; }
+/* t-card 的 body 外面被 .t-loading__parent 包裹（t-card loading 容器），它默认 flex:0 1 auto 不撑开，
+   是 flex 链路断点。给它 flex:1 + min-height:0 让它撑满 doc-panel 剩余，body 再 flex:1 传给 doc-list */
+.panel.doc-panel :deep(.t-loading__parent) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .panel.doc-panel :deep(.t-card__body) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* 数据源/ vault 列表：原生 div 卡片，gap 间距（跟文档列表统一），撑满 src-panel body */
 .src-list { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }

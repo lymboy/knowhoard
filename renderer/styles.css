@@ -746,13 +746,8 @@ button {
   margin-bottom: 12px;
 }
 
-.source-list, .doc-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 320px;
-  overflow-y: auto;
-}
+/* 老的 .source-list/.doc-list max-height:320px 写死高度规则已删（违反响应式、阻碍列表撑满容器）。
+   现在文档列表用 flex:1 + overflow:auto 自适应撑满，见 KnowledgeView.vue */
 .source-item, .doc-item {
   display: flex;
   align-items: center;
