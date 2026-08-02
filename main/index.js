@@ -19,9 +19,9 @@ const AUTHOR_BLURB =
 
 app.setName(APP_NAME); // 必须在 app 'ready' 之前调用，否则开发模式下菜单栏可能仍显示 "Electron"
 
-// 开发模式开 remote debugging 端口，方便 chrome-devtools MCP 连上看渲染层 Console
-// 必须在 app ready 之前调 appendSwitch 才生效
-if (process.env.NODE_ENV !== "production") {
+// 仅在显式调试时（KB_DEBUG=1）开 remote debugging 端口，方便 chrome-devtools MCP 连上看渲染层 Console。
+// 生产/正常启动一律不开，避免打包后用户启动还弹 DevTools。必须在 app ready 之前调 appendSwitch 才生效。
+if (process.env.KB_DEBUG === "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9223");
   app.commandLine.appendSwitch("remote-allow-origins", "*");
 }
@@ -133,8 +133,8 @@ function createWindow() {
     },
   });
   mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
-  // 开发模式自动打开 DevTools，方便排查 Vue 迁移期的渲染层报错
-  if (process.env.NODE_ENV !== "production" && !process.env.KB_NO_DEVTOOLS) {
+  // 仅在显式调试时（KB_DEBUG=1）自动打开 DevTools。生产/正常启动不开，避免用户启动还弹控制台。
+  if (process.env.KB_DEBUG === "1") {
     mainWindow.webContents.once("dom-ready", () => mainWindow.webContents.openDevTools({ mode: "detach" }));
   }
   // 模型预热可能在渲染进程的监听器还没挂上之前就已经在发状态了，页面刚加载完这里补发一次，
