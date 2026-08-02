@@ -2,15 +2,18 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self';" />
 <title>小怪兽知识库</title>
 <link rel="stylesheet" href="../node_modules/github-markdown-css/github-markdown.css" />
 <link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css" />
 <link rel="stylesheet" href="styles.css" />
+<!-- TDesign 设计语言：token（颜色/字号/圆角/间距，含亮暗）+ chat 组件样式。
+     原样引入不修改，TDesign 升级时重拷即可。组件 DOM 套 .t-chat__* class 复用这套视觉。
+     主题：我们 data-theme 切换时同步设 theme-mode，让 --td-* token 跟随亮暗 -->
+<link rel="stylesheet" href="vendor/tdesign-tokens.css" />
+<link rel="stylesheet" href="vendor/tdesign-chat.css" />
 <!-- Vue 组件 scoped 样式（build-vue 合并产物） -->
 <link rel="stylesheet" href="vendor/components.css" />
-<!-- TDesign Chat 组件样式 -->
-<link rel="stylesheet" href="vendor/tdesign-chat.css" />
 </head>
 <body>
   <div id="onboardingOverlay" class="onboarding-overlay" hidden>
