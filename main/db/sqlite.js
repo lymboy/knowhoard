@@ -107,7 +107,18 @@ function initDb(userDataPath) {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+// SQLite 的 ALTER TABLE 不支持 IF NOT EXISTS，靠 pragma 查列是否存在再做增量迁移
+function migrate(db) {
+  const messageCols = db.prepare(`PRAGMA table_info(messages)`).all().map((c) => c.name);
+  if (!messageCols.includes("tool_calls")) {
+    // JSON: [{ name, args, result, ok }]——一轮问答里调用过的工具记录，
+    // 用于切走再切回会话时还原工具调用折叠块
+    db.exec(`ALTER TABLE messages ADD COLUMN tool_calls TEXT`);
+  }
 }
 
 function getDb() {

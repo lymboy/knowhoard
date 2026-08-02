@@ -327,6 +327,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         content: decompressText(r.content),
         reasoning: r.reasoning ? decompressText(r.reasoning) : "",
         citations: r.citations ? JSON.parse(r.citations) : [],
+        toolCalls: r.tool_calls ? JSON.parse(r.tool_calls) : [],
         favorited: !!r.fav_id,
       })),
     };
@@ -383,13 +384,14 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     citations,
     ragEnabled,
     usage,
+    toolCalls,
   }) {
     const id = randomUUID();
     db.prepare(
       `INSERT INTO messages
         (id, conversation_id, role, content, reasoning, citations, rag_enabled,
-         prompt_tokens, completion_tokens, total_tokens, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         prompt_tokens, completion_tokens, total_tokens, tool_calls, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       conversationId,
@@ -401,6 +403,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
       usage?.prompt_tokens ?? null,
       usage?.completion_tokens ?? null,
       usage?.total_tokens ?? null,
+      toolCalls && toolCalls.length ? JSON.stringify(toolCalls) : null,
       Date.now()
     );
     db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
@@ -433,6 +436,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     let finalReasoning = "";
     let finalCitations = [];
     let finalUsage = null;
+    let finalToolCalls = [];
 
     try {
       await runAgentTurn({
@@ -455,6 +459,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
             finalReasoning = event.reasoning || finalReasoning;
             finalCitations = event.citations || [];
             finalUsage = event.usage || null;
+            finalToolCalls = event.toolCalls || [];
             // 只要这次真收到了 reasoning 内容，就是模型支持思考的实锤，不用另外发一次探测请求，
             // 也不用等用户手动点检测——第一次问答顺手就把这个能力记下来
             if (event.detectedThinkingSupport) {
@@ -479,6 +484,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         citations: finalCitations,
         ragEnabled,
         usage: finalUsage,
+        toolCalls: finalToolCalls,
       });
       send({ type: "saved", messageId: assistantMessageId });
     } catch (error) {
@@ -492,6 +498,7 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
           reasoning: finalReasoning,
           citations: finalCitations,
           ragEnabled,
+          toolCalls: finalToolCalls,
         });
         send({ type: "stopped", messageId: assistantMessageId });
       } else if (isAbort) {

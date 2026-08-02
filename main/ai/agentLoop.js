@@ -1,3 +1,4 @@
+const path = require("path");
 const { retrieve, buildContextBlock, buildCitations } = require("../rag/retriever");
 const { streamChatCompletion, chatCompletion } = require("./llmClient");
 
@@ -101,7 +102,8 @@ const TOOL_GUIDELINES =
   "3. 当检索片段信息不完整、有矛盾、或不足以全面回答时，主动用工具补充，不要直接说「不支持」「没有」「信息不足」。\n" +
   "4. 用户想要的是基于真实文档的深度分析，不是基于片段的简单复述。\n" +
   "5. 使用文件工具时，只能使用检索上下文中已出现的路径，不要猜测。\n" +
-  "6. 需要查找本地知识库没有的外部信息时，使用 web_search。";
+  "6. 需要查找本地知识库没有的外部信息时，使用 web_search。\n" +
+  "7. 引用标注规则：你通过 read_file / fetch_url 读取的内容会被系统分配新的 [来源N] 编号（编号会单独告诉你）。基于哪个来源的内容回答，就标注哪个来源的编号——不要张冠李戴。";
 
 // =====================================================================
 // ④ 辅助函数
@@ -276,28 +278,84 @@ async function runAgentTurn(params) {
   let rounds = 0;
   let finalMessage = null;
 
+  // 工具读取过的来源（read_file / fetch_url）——动态加入引用编号体系，
+  // 不然 LLM 基于工具读到的内容回答时，[来源N] 会对到检索 chunk 列表里的错误文档上
+  const toolReadSources = [];
+  let injectedSourceCount = 0;
+  // 本轮所有工具调用的记录，随 done 事件一起发出去落库，
+  // 切走再切回会话时可以从 DB 还原工具调用折叠块
+  const toolCallLog = [];
+  // 收集每一轮的思考过程——中间轮次（模型规划要调哪个工具）的思考往往比最后一轮更有价值，
+  // 只取 finalMessage 的 reasoning 会把这些全丢掉，用户开了思考模式却什么都看不到
+  let allRoundReasoning = "";
+
   while (rounds < MAX_TOOL_ROUNDS) {
     rounds += 1;
     const message = await chatCompletion(config, messages, { tools, tool_choice: toolChoice });
+    // 每一轮的 reasoning 都收集起来，包括决定调工具的那些轮次
+    const roundReasoning = message.reasoning_content || message.reasoning || "";
+    if (roundReasoning) {
+      if (allRoundReasoning) allRoundReasoning += "\n\n";
+      allRoundReasoning += roundReasoning;
+      if (thinkingEnabled) onEvent({ type: "reasoning", text: roundReasoning + "\n\n" });
+    }
     if (message.tool_calls && message.tool_calls.length) {
       messages.push(message);
       const toolResults = await Promise.all(
         message.tool_calls.map(async (call) => {
-          onEvent({ type: "tool-call", name: call.function.name, args: call.function.arguments });
+          onEvent({ type: "tool-call", id: call.id, name: call.function.name, args: call.function.arguments });
           let toolResultText;
+          let ok = true;
           try {
             const args = JSON.parse(call.function.arguments || "{}");
             const result = await mcpManager.callTool(call.function.name, args, toolCtx);
             toolResultText = JSON.stringify(result);
+
+            // 跟踪 read_file / fetch_url 读到的来源，分配引用编号
+            if (call.function.name === "builtin__read_file" || call.function.name === "builtin__fetch_url") {
+              try {
+                const parsed = typeof result === "string" ? JSON.parse(result) : result;
+                const sourcePath = parsed?.path || parsed?.url;
+                if (sourcePath && !toolReadSources.some((s) => s.path === sourcePath)) {
+                  toolReadSources.push({
+                    path: sourcePath,
+                    filename: parsed.title || path.basename(sourcePath),
+                    snippet: (parsed.content || parsed.text || "").slice(0, 120),
+                  });
+                }
+              } catch { /* 解析失败就不跟踪，不影响主流程 */ }
+            }
           } catch (error) {
+            ok = false;
             toolResultText = `工具调用失败: ${error.message}`;
           }
-          onEvent({ type: "tool-result", name: call.function.name, result: toolResultText });
+          // 结果截断到 500 字符再落库——read_file 的内容可能上万字，全存会撑爆 DB
+          toolCallLog.push({
+            name: call.function.name,
+            args: call.function.arguments.slice(0, 200),
+            result: toolResultText.slice(0, 500),
+            ok,
+          });
+          onEvent({ type: "tool-result", id: call.id, name: call.function.name, result: toolResultText });
           return { tool_call_id: call.id, content: toolResultText };
         })
       );
       for (const result of toolResults) {
         messages.push({ role: "tool", tool_call_id: result.tool_call_id, content: result.content });
+      }
+
+      // 有新的工具来源时，立刻把「编号 → 文件」映射表发给 LLM——
+      // 编号接在检索 chunk 的编号后面，LLM 下一轮生成时就知道 [来源N] 到底指谁
+      if (toolReadSources.length > injectedSourceCount) {
+        const base = allCitations.length;
+        const lines = toolReadSources.slice(injectedSourceCount).map((s, i) => {
+          return `[来源${base + injectedSourceCount + i + 1}] ${s.filename}（${s.path}）`;
+        });
+        messages.push({
+          role: "system",
+          content: `你刚通过工具读取了以下内容，回答时如引用这些内容，请用对应编号标注：\n${lines.join("\n")}`,
+        });
+        injectedSourceCount = toolReadSources.length;
       }
       continue;
     }
@@ -312,15 +370,25 @@ async function runAgentTurn(params) {
       content: "已达到工具调用轮次上限。请基于目前已收集到的所有信息（检索结果和工具返回的内容），直接生成最终回答。",
     });
     finalMessage = await chatCompletion(config, messages, {});
+    const lastReasoning = finalMessage?.reasoning_content || finalMessage?.reasoning || "";
+    if (lastReasoning) {
+      if (allRoundReasoning) allRoundReasoning += "\n\n";
+      allRoundReasoning += lastReasoning;
+      if (thinkingEnabled) onEvent({ type: "reasoning", text: lastReasoning });
+    }
   }
 
   const content = finalMessage?.content || "（无法生成回答）";
   onEvent({ type: "delta", text: content });
+  // 引用列表 = 检索 chunk + 工具读取的来源，编号连续，
+  // 跟注入给 LLM 的「编号 → 文件」映射表严格一致
+  const combinedCitations = [...allCitations, ...toolReadSources];
   onEvent({
     type: "done",
     content,
-    reasoning: finalMessage?.reasoning_content || "",
-    citations: filterReferencedCitations(content, allCitations),
+    reasoning: thinkingEnabled ? allRoundReasoning : "",
+    citations: filterReferencedCitations(content, combinedCitations),
+    toolCalls: toolCallLog,
   });
 }
 

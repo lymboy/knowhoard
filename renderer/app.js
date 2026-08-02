@@ -371,7 +371,7 @@ let pageState = { conversationId: null, oldestCreatedAt: null, hasMore: false, l
 function renderHistoryMessage(m, prepend) {
   return appendMessageBubble(
     m.role,
-    { content: m.content, reasoning: m.reasoning, citations: m.citations, id: m.id, favorited: m.favorited },
+    { content: m.content, reasoning: m.reasoning, citations: m.citations, toolCalls: m.toolCalls, id: m.id, favorited: m.favorited },
     prepend
   );
 }
@@ -464,6 +464,25 @@ function buildBubbleActions(msg, messageId, favorited) {
   return wrap;
 }
 
+// 历史消息里的工具调用记录还原成折叠块——结构跟流式时的 tool-calls 一致，
+// 但默认收起（历史回顾时主要要看回答，工具记录是辅助信息）
+function buildToolCallsBlock(toolCalls) {
+  const el_ = document.createElement("details");
+  el_.className = "tool-calls";
+  el_.open = false;
+  el_.innerHTML = `<summary>调用了 ${toolCalls.length} 个工具</summary><div class="tool-calls-body"></div>`;
+  const body = el_.querySelector(".tool-calls-body");
+  toolCalls.forEach((tc) => {
+    const entry = document.createElement("div");
+    entry.className = "tool-call-entry";
+    const displayName = tc.name.includes("__") ? tc.name.split("__").slice(1).join("__") : tc.name;
+    const statusText = tc.ok ? (tc.result?.slice(0, 200) || "完成") : tc.result;
+    entry.innerHTML = `<div class="tool-call-name">🔧 ${escapeHtml(displayName)}</div><div class="tool-call-result">${escapeHtml(statusText)}</div>`;
+    body.appendChild(entry);
+  });
+  return el_;
+}
+
 function buildCitationChips(citations) {
   const citeWrap = document.createElement("div");
   citeWrap.className = "citations";
@@ -471,15 +490,19 @@ function buildCitationChips(citations) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "citation-chip";
-    chip.title = `点击在 Finder 中查看：${c.path}`;
+    const isUrl = /^https?:\/\//.test(c.path);
+    chip.title = isUrl ? `点击在浏览器中打开：${c.path}` : `点击在 Finder 中查看：${c.path}`;
     chip.textContent = `[来源${i + 1}] ${c.filename}`;
-    chip.addEventListener("click", () => kb.documents.openInFinder(c.path));
+    chip.addEventListener("click", () => {
+      if (isUrl) kb.shell.openExternal(c.path);
+      else kb.documents.openInFinder(c.path);
+    });
     citeWrap.appendChild(chip);
   });
   return citeWrap;
 }
 
-function appendMessageBubble(role, { content = "", reasoning = "", citations = [], id = "", favorited = false } = {}) {
+function appendMessageBubble(role, { content = "", reasoning = "", citations = [], toolCalls = [], id = "", favorited = false } = {}) {
   const wrap = el("messages");
   const msg = document.createElement("div");
   msg.className = `msg ${role}`;
@@ -522,6 +545,11 @@ function appendMessageBubble(role, { content = "", reasoning = "", citations = [
     bubble.textContent = content;
   } else {
     bubble.innerHTML = renderMarkdown(content);
+  }
+
+  // 历史消息里存的工具调用记录，还原成折叠块（默认收起，避免长记录刷屏）
+  if (toolCalls && toolCalls.length) {
+    contentCol.appendChild(buildToolCallsBlock(toolCalls));
   }
   contentCol.appendChild(bubble);
 
@@ -655,17 +683,21 @@ kb.chat.onEvent((event) => {
     // 去掉前缀（builtin__ / serverName__），只显示工具名
     const displayName = event.name.includes("__") ? event.name.split("__").slice(1).join("__") : event.name;
     entry.innerHTML = `<div class="tool-call-name">🔧 ${escapeHtml(displayName)}</div><div class="tool-call-status">执行中…</div>`;
+    // 用 tool_call_id 精确匹配结果——同一轮里可能有两个同名工具调用，
+    // 按名字匹配会把第二个调用的结果更新到第一个 entry 上，第二个永远卡在"执行中"
+    entry.dataset.callId = event.id || "";
     entry.dataset.toolName = event.name;
     currentToolCallsEl.querySelector(".tool-calls-body").appendChild(entry);
     // 更新 summary 计数
     const count = currentToolCallsEl.querySelector(".tool-calls-body").children.length;
     currentToolCallsEl.querySelector("summary").textContent = `调用了 ${count} 个工具`;
   } else if (event.type === "tool-result") {
-    // 找到对应的 tool-call entry，更新状态
+    // 找到对应的 tool-call entry，更新状态（优先按 callId 精确匹配，没有 id 的老数据按名字兜底）
     if (currentToolCallsEl) {
       const entries = currentToolCallsEl.querySelector(".tool-calls-body").children;
       for (const entry of entries) {
-        if (entry.dataset.toolName === event.name) {
+        const matched = event.id ? entry.dataset.callId === event.id : entry.dataset.toolName === event.name;
+        if (matched && entry.querySelector(".tool-call-status")) {
           const statusEl = entry.querySelector(".tool-call-status");
           try {
             const parsed = JSON.parse(event.result);
@@ -682,6 +714,15 @@ kb.chat.onEvent((event) => {
     }
   } else if (event.type === "done") {
     bubble.classList.remove("empty");
+    // 工具调用路径下没有流式 reasoning 事件，思考过程只在 done 里带过来——
+    // 如果流式阶段没建过 reasoning 元素，这里补建一个
+    if (event.reasoning && !currentBubbleRefs.content.querySelector(".reasoning")) {
+      const reasoningEl = document.createElement("details");
+      reasoningEl.className = "reasoning";
+      reasoningEl.innerHTML = `<summary>思考过程</summary><div class="reasoning-body"></div>`;
+      reasoningEl.querySelector(".reasoning-body").textContent = event.reasoning;
+      currentBubbleRefs.content.insertBefore(reasoningEl, bubble);
+    }
     const doneCitations = event.citations || [];
     if (doneCitations.length) {
       currentBubbleRefs.content.appendChild(buildCitationChips(doneCitations));

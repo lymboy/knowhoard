@@ -152,6 +152,10 @@ async function chatCompletion(config, messages, { tools, tool_choice } = {}) {
     top_p: config.topP ?? 1,
   };
   if (config.maxTokens) body.max_tokens = Number(config.maxTokens);
+  if (config.topK) body.top_k = Number(config.topK);
+  // 跟流式路径保持一致：显式传 enable_thinking，不然工具调用循环里模型根本不会被要求思考，
+  // 用户开了思考模式也看不到任何思考过程
+  body.enable_thinking = Boolean(config.thinkingEnabled);
   if (tools && tools.length) {
     body.tools = tools;
     if (tool_choice) body.tool_choice = tool_choice;
