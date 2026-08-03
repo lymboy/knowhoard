@@ -417,21 +417,22 @@ html, body {
 }
 
 /* 代码块内容区 */
-.bubble pre {
-  background: #0d1117;
+.bubble pre, .markdown-body pre, .favorite-preview pre {
+  background: #0d1117 !important;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px 16px;
   overflow-x: auto;
   margin: 0;
 }
-.bubble code {
+.bubble code, .markdown-body code {
   font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.65;
 }
-/* hljs 语法高亮用官方 github-dark 主题（lib-globals 引入），代码块深色底浅色字，
-   亮暗气泡都可读。这里不再自定义 hljs 颜色，避免与主题冲突 */
+/* 代码块内 code 跟随 pre 深色底，github-dark 主题字色生效 */
+.bubble pre code, .markdown-body pre code { background: transparent; color: #e6edf3; }
+/* hljs 语法高亮用官方 github-dark 主题（lib-globals 引入），代码块深色底浅色字 */
 
 /* 行内代码（跟随主题） */
 .bubble :not(pre) > code {
