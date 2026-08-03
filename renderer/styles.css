@@ -418,9 +418,9 @@ html, body {
 
 /* 代码块内容区 */
 .bubble pre {
-  background: transparent;
-  border: none;
-  border-radius: 0;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   padding: 14px 16px;
   overflow-x: auto;
   margin: 0;
@@ -430,20 +430,8 @@ html, body {
   font-size: 13px;
   line-height: 1.65;
 }
-
-/* 语法高亮（GitHub dark，深色代码块内通用） */
-.hljs { background: transparent; color: #e6edf3; }
-.hljs-comment, .hljs-quote { color: #8b949e; font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #ff7b72; }
-.hljs-string, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #a5d6ff; }
-.hljs-number, .hljs-meta { color: #79c0ff; }
-.hljs-title, .hljs-name, .hljs-section, .hljs-selector-id { color: #d2a8ff; }
-.hljs-function .hljs-title, .hljs-built_in { color: #d2a8ff; }
-.hljs-variable, .hljs-template-variable, .hljs-attribute { color: #ffa657; }
-.hljs-tag { color: #7ee787; }
-.hljs-deletion { color: #ffa198; }
-.hljs-emphasis { font-style: italic; }
-.hljs-strong { font-weight: 700; }
+/* hljs 语法高亮用官方 github-dark 主题（lib-globals 引入），代码块深色底浅色字，
+   亮暗气泡都可读。这里不再自定义 hljs 颜色，避免与主题冲突 */
 
 /* 行内代码（跟随主题） */
 .bubble :not(pre) > code {
