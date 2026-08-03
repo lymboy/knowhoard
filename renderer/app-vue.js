@@ -2,6 +2,7 @@
 // 替代旧 app.js（经典脚本）+ 3 个分散 mount 点。所有视图由 App.vue 内部切换，状态从 store 派生。
 import { createApp } from "vue";
 import TDesign from "tdesign-vue-next";
+import TDesignChat from "@tdesign-vue-next/chat";
 import App from "./App.vue";
 import "./lib-globals.js";
 import { setKb, store, handleChatEvent, setAiStatus } from "./store.js";
@@ -15,6 +16,7 @@ initMarkdown();
 
 const app = createApp(App);
 app.use(TDesign);
+app.use(TDesignChat);
 app.mount("#app");
 
 // 接 AI 状态事件到 store（AiStatus.vue 读 store.aiStatus）
