@@ -1,6 +1,6 @@
 <template>
   <div :class="['msg', msg.role, { selected: selected }]" :data-message-id="msg.id">
-    <t-avatar :src="avatarSrc" :alt="msg.role === 'user' ? '我' : '小怪兽'" shape="round" size="36px" class="avatar" />
+    <t-avatar :image="avatarSrc" shape="round" size="36px" class="avatar" />
     <div class="msg-content">
       <t-collapse v-if="msg.reasoning" class="reasoning" :default-expand-all="false">
         <t-collapse-panel header="思考过程">

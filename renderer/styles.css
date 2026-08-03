@@ -351,14 +351,15 @@ html, body {
 .bubble p { margin: 10px 0; line-height: 1.65; }
 .bubble p:first-child { margin-top: 0; }
 .bubble p:last-child { margin-bottom: 0; }
-.bubble a { color: #0969da; text-decoration: underline; text-underline-offset: 2px; }
-.bubble a:hover { color: #0550ae; }
-:root[data-theme="dark"] .bubble a { color: #8fd6ff; }
-:root[data-theme="dark"] .bubble a:hover { color: #b5e3ff; }
+.bubble a { color: var(--td-brand-color); text-decoration: underline; text-underline-offset: 2px; }
+.bubble a:hover { color: var(--td-brand-color-hover); }
+:root[data-theme="dark"] .bubble a { color: var(--td-brand-color); }
+:root[data-theme="dark"] .bubble a:hover { color: var(--td-brand-color-hover); }
 .bubble h1, .bubble h2, .bubble h3, .bubble h4 {
   font-weight: 700;
   line-height: 1.4;
   margin: 22px 0 10px;
+  color: var(--td-text-color-primary);
 }
 .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child, .bubble h4:first-child { margin-top: 2px; }
 .bubble h1 { font-size: 1.45em; }
@@ -375,23 +376,23 @@ html, body {
 .bubble hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 .bubble img { max-width: 100%; border-radius: 10px; }
 
-/* ---------- 代码块（深色底，两种主题下都通用，GitHub 白底主题也是深色代码块） ---------- */
+/* ---------- 代码块（跟随主题，TDesign token） ---------- */
 .code-block {
-  border: 1px solid #30363d;
+  border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   overflow: hidden;
   margin: 12px 0;
-  background: #0d1117;
+  background: var(--td-bg-color-secondarycontainer);
 }
 .code-block-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 6px 14px;
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: var(--td-bg-color-secondarycontainer);
+  border-bottom: 1px solid var(--td-component-stroke);
   font-size: 12px;
-  color: #8b949e;
+  color: var(--td-text-color-secondary);
 }
 .code-block-header .lang {
   font-weight: 600;
@@ -418,7 +419,7 @@ html, body {
 
 /* 代码块内容区 */
 .bubble pre, .markdown-body pre, .favorite-preview pre {
-  background: var(--td-bg-color-secondarycontainer);
+  background: var(--td-bg-color-secondarycontainer) !important;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   padding: 14px 16px;

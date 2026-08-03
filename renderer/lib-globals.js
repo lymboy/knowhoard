@@ -18,9 +18,9 @@ window.mermaid = mermaid;
 window.katex = katex;
 window.renderMathInElement = renderMathInElement;
 
-// github-markdown-css 和 katex.css 也由这里 import，vite 打包进产物，
-// 不再靠 index.html 的 <link> 引 node_modules 路径（vite 不认那种路径）
-import "github-markdown-css/github-markdown.css";
+// 第三方样式由这里 import，vite 打包进产物。
+// markdown 渲染用 marked（TDesign Chat 内部也用它），样式用 --td-* token 自写（见 styles.css），
+// 不引 github-markdown-css（既然用 TDesign 设计语言，不混第三方 markdown 样式）。
 import "katex/dist/katex.min.css";
 // TDesign 设计系统样式（颜色/字号/圆角/间距/组件），含亮暗 token
 import "tdesign-vue-next/es/style/index.css";
