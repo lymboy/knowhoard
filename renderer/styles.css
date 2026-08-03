@@ -418,8 +418,8 @@ html, body {
 
 /* 代码块内容区 */
 .bubble pre, .markdown-body pre, .favorite-preview pre {
-  background: #0d1117 !important;
-  border: 1px solid var(--border);
+  background: var(--td-bg-color-secondarycontainer);
+  border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   padding: 14px 16px;
   overflow-x: auto;
@@ -430,9 +430,7 @@ html, body {
   font-size: 13px;
   line-height: 1.65;
 }
-/* 代码块内 code 跟随 pre 深色底，github-dark 主题字色生效 */
-.bubble pre code, .markdown-body pre code { background: transparent; color: #e6edf3; }
-/* hljs 语法高亮用官方 github-dark 主题（lib-globals 引入），代码块深色底浅色字 */
+.bubble pre code, .markdown-body pre code { background: transparent; color: var(--td-text-color-primary); }
 
 /* 行内代码（跟随主题） */
 .bubble :not(pre) > code {

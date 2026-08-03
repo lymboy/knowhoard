@@ -1,11 +1,12 @@
 <template>
   <div :class="['msg', msg.role, { selected: selected }]" :data-message-id="msg.id">
-    <img class="avatar" :src="avatarSrc" :alt="msg.role === 'user' ? '我' : '小怪兽'" />
+    <t-avatar :src="avatarSrc" :alt="msg.role === 'user' ? '我' : '小怪兽'" shape="round" size="36px" class="avatar" />
     <div class="msg-content">
-      <details v-if="msg.reasoning" class="reasoning">
-        <summary>思考过程</summary>
-        <div class="reasoning-body">{{ msg.reasoning }}</div>
-      </details>
+      <t-collapse v-if="msg.reasoning" class="reasoning" :default-expand-all="false">
+        <t-collapse-panel header="思考过程">
+          <div class="reasoning-body">{{ msg.reasoning }}</div>
+        </t-collapse-panel>
+      </t-collapse>
 
       <ToolCallsBlock
         v-if="msg.toolCalls && msg.toolCalls.length"
@@ -27,8 +28,8 @@
       <!-- 复制 + 收藏：所有消息都有这两个按钮（原 app.js 设计如此，用户消息也能收藏）。
            收藏需 msg.id（落库后才有），流式中没 id 时收藏按钮先不显示，落库后自动出现 -->
       <div class="bubble-actions">
-        <button @click="copyContent">{{ copied ? '已复制' : '复制' }}</button>
-        <button v-if="msg.id" :class="{ favorited: msg.favorited }" @click="toggleFavorite">{{ msg.favorited ? '★ 已收藏' : '☆ 收藏' }}</button>
+        <t-button theme="default" variant="text" size="small" @click="copyContent">{{ copied ? '已复制' : '复制' }}</t-button>
+        <t-button v-if="msg.id" :theme="msg.favorited ? 'warning' : 'default'" variant="text" size="small" @click="toggleFavorite">{{ msg.favorited ? '★ 已收藏' : '☆ 收藏' }}</t-button>
       </div>
     </div>
 

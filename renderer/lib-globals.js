@@ -24,5 +24,5 @@ import "github-markdown-css/github-markdown.css";
 import "katex/dist/katex.min.css";
 // TDesign 设计系统样式（颜色/字号/圆角/间距/组件），含亮暗 token
 import "tdesign-vue-next/es/style/index.css";
-// hljs 语法高亮主题：统一用 github-dark（代码块始终深色底浅色字，亮暗气泡都可读，像 GitHub/ChatGPT）
-import "highlight.js/styles/github-dark.css";
+// hljs 语法高亮主题：github（亮色），代码块跟随主题浅底深字
+import "highlight.js/styles/github.css";
