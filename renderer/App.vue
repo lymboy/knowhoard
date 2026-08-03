@@ -136,7 +136,7 @@ export default {
 <style>
 /* App 根布局（全局，非 scoped——App 是唯一根，全局覆盖更稳，避免和 styles.css 的 .sidebar/.content
    scoped 叠加打架）。这里统一管 sidebar 红黄绿避让 + 拖拽区 + content 布局 + 对话区限宽。 */
-.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.app-shell { display: flex; height: 100vh; width: 100%; overflow: hidden; }
 
 /* 侧边栏：标题栏 hiddenInset 隐藏后，红黄绿按钮悬浮在内容上方，顶部留 38px 避让；
    空白区作窗口拖拽区（-webkit-app-region: drag），内部可点击元素单独排除 */
@@ -193,13 +193,16 @@ export default {
 .content .t-input, .content .t-textarea__inner, .content .t-select, .content .t-input-number,
 .content .t-textarea { width: 100%; }
 
-/* 对话区限宽：消息列表居中、气泡有上限，窗口拉宽时不会一边空一边挤。
+/* 对话区铺满右侧宽度（不限宽），气泡本身限宽居中保持可读。
    覆盖 styles.css 里 .messages > .msg 的 max-width:min(78%,1080px) */
-.app-shell .messages > .msg { max-width: min(86%, 920px); }
+.app-shell .messages > .msg { max-width: min(86%, 1080px); }
 .app-shell .chat-view-inner {
   flex: 1; min-height: 0;
-  max-width: 920px; margin: 0 auto; width: 100%; box-sizing: border-box; padding: 0 24px;
+  width: 100%; box-sizing: border-box;
 }
+/* TDesign Chat 的 t-chat__list 内部限宽，放开让它撑满 */
+.app-shell .t-chat { width: 100%; }
+.app-shell .t-chat__list { max-width: none; }
 
 .ai-status { margin-top: auto; }
 
