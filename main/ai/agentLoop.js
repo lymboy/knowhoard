@@ -371,7 +371,7 @@ async function runAgentTurn(params) {
 
   while (rounds < MAX_TOOL_ROUNDS) {
     rounds += 1;
-    const message = await chatCompletion(config, messages, { tools, tool_choice: toolChoice });
+    const message = await chatCompletion(config, messages, { tools, tool_choice: toolChoice }, params.signal);
     // 每一轮的 reasoning 都收集起来，包括决定调工具的那些轮次
     const roundReasoning = message.reasoning_content || message.reasoning || "";
     if (roundReasoning) {
@@ -482,7 +482,7 @@ async function runAgentTurn(params) {
       role: "system",
       content: "已达到工具调用轮次上限。请基于目前已收集到的所有信息（检索结果和工具返回的内容），直接生成最终回答。",
     });
-    finalMessage = await chatCompletion(config, messages, {});
+    finalMessage = await chatCompletion(config, messages, {}, params.signal);
     const lastReasoning = finalMessage?.reasoning_content || finalMessage?.reasoning || "";
     if (lastReasoning) {
       if (allRoundReasoning) allRoundReasoning += "\n\n";
