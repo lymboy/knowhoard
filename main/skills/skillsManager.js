@@ -10,6 +10,11 @@
  * 只扫用户主目录下的个人级路径，不扫项目级 .claude/skills/ 之类——knowhoard 是独立桌面应用，
  * 没有"当前项目"的概念。某个目录不存在就跳过，不算错误。
  *
+ * 跨平台：路径全部经 os.homedir() + path.join() 生成，Windows 上会自动解析成
+ * C:\Users\xxx\.claude\skills 这类路径、用 \ 分隔，不需要按平台写分支。这些 CLI 工具
+ * 本身也是跨平台 Node.js 应用，在 Windows 上同样把配置目录建在 USERPROFILE 下的
+ * .claude/.agents/.codex 这类点号文件夹里（跟 ~/.npm、~/.ssh 是同一套惯例）。
+ *
  * 渐进式加载：Skill 正文可能很长（几百到几千字），全部塞进系统提示词不现实——
  * 用户开启多个 Skill 时提示词会迅速膨胀，token 成本失控。
  * 所以只把「目录」（name + description）常驻注入系统提示词，完整正文通过一个
@@ -82,8 +87,15 @@ function readSkillBody(id) {
   const roots = getSkillRoots().map((r) => path.resolve(r));
   const resolved = path.resolve(id);
   // id 来自模型调用，输入不完全可信——校验它确实落在某个已知 Skill 根目录下，
-  // 防止用 ../ 之类路径跳出去读到 Skill 目录以外的任意文件
-  const inKnownRoot = roots.some((r) => resolved === r || resolved.startsWith(r + path.sep));
+  // 防止用 ../ 之类路径跳出去读到 Skill 目录以外的任意文件。
+  // 用 path.relative 而不是字符串 startsWith：更标准的跨平台目录包含关系判断，
+  // Windows 的 \ 分隔符和大小写不敏感文件系统下也不会误判（relative 结果不以 .. 开头
+  // 且不是绝对路径，就说明 resolved 落在 root 内）
+  const inKnownRoot = roots.some((r) => {
+    if (resolved === r) return true;
+    const rel = path.relative(r, resolved);
+    return rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+  });
   if (!inKnownRoot) throw new Error("非法的 skill 路径");
 
   const skillFile = path.join(resolved, "SKILL.md");
