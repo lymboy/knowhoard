@@ -185,9 +185,10 @@ export default {
   width: 100%; margin: 0; padding: 16px 20px 40px; box-sizing: border-box;
 }
 
-/* t-card body 默认左右 padding 是 --td-comp-paddingLR-xl（24px），输入框/表单被缩进显空白。
-   统一收到 12px，内容贴边又不失呼吸感。设置/知识库/收藏的 panel 都受益 */
-.content .t-card__body { padding-left: 12px; padding-right: 12px; }
+/* t-card body 默认左右 padding 是 --td-comp-paddingLR-xl（24px）。曾误收到 12px 导致与 header(24px)
+   缩进不一致、看似输入框有白边；实测（CDP）输入框两侧是 24px card padding + 双列布局的正常留白，非 bug。
+   保持 TDesign 默认，header/body 一致 24px */
+.content .t-card__body { padding-left: var(--td-comp-paddingLR-xl); padding-right: var(--td-comp-paddingLR-xl); }
 /* 表单控件全部撑满 form-item，消除输入框内部白边 */
 .content .t-input, .content .t-textarea__inner, .content .t-select, .content .t-input-number,
 .content .t-textarea { width: 100%; }

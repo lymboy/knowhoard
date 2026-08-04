@@ -402,9 +402,9 @@ html, body {
   font-size: 11px;
 }
 .code-block-header .copy-btn {
-  background: #21262d;
-  border: 1px solid #30363d;
-  color: #8b949e;
+  background: transparent;
+  border: 1px solid var(--td-component-stroke);
+  color: var(--td-text-color-secondary);
   border-radius: 6px;
   padding: 3px 10px;
   cursor: pointer;
@@ -412,9 +412,9 @@ html, body {
   transition: all 0.15s;
 }
 .code-block-header .copy-btn:hover {
-  color: #f0f6fc;
-  border-color: #8b949e;
-  background: #30363d;
+  color: var(--td-text-color-primary);
+  border-color: var(--td-brand-color);
+  background: var(--td-bg-color-secondarycontainer);
 }
 
 /* 代码块内容区 */
@@ -422,7 +422,7 @@ html, body {
   background: var(--td-bg-color-secondarycontainer) !important;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 10px 16px;
   overflow-x: auto;
   margin: 0;
 }
@@ -527,6 +527,24 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+/* 思考过程折叠块（MessageBubble 用 t-collapse + .reasoning）：TDesign 默认 header 背景是
+   --td-bg-color-container（亮色 #fff 纯白），叠在外层 .reasoning 的 --bg-elevated-2 浅灰上，
+   标题区变成一条纯白横条，比气泡正文还抢眼。改成内部全透明，融进外层浅灰底，标题用次要灰字、
+   下方一条淡分割线分隔标题与正文，整块低调不抢视觉重点 */
+.reasoning.t-collapse .t-collapse__header,
+.reasoning.t-collapse .t-collapse__content,
+.reasoning.t-collapse .t-collapse-panel { background: transparent; }
+.reasoning.t-collapse .t-collapse__header {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 12px;
+}
+.reasoning.t-collapse .t-collapse__header-title {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.reasoning.t-collapse .t-collapse__content--inner { padding: 8px 12px 10px; }
+
 .tool-trace {
   font-size: 13px;
   color: var(--text-dim);
@@ -603,29 +621,32 @@ html, body {
 }
 .composer-toggles {
   display: flex;
-  gap: 16px;
+  gap: 8px;
   margin-bottom: 8px;
   padding-left: 4px;
 }
+/* 对话开关：原生 button + active class（比 t-tag/t-button 在 reactive 切换下更稳）。
+   配色用 TDesign token：未选=次要容器浅底灰字，选中=品牌蓝实底白字。
+   圆角胶囊形态，和 Composer 输入框风格一致 */
 .mode-pill {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated-2);
-  color: var(--text-dim);
-  font-size: 13.5px;
-  padding: 6px 14px;
+  border: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  padding: 5px 14px;
   border-radius: 999px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .mode-pill:hover {
-  border-color: var(--accent);
-  color: var(--text);
+  border-color: var(--td-brand-color);
+  color: var(--td-brand-color);
 }
 .mode-pill.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #1b0a12;
-  font-weight: 600;
+  background: var(--td-brand-color) !important;
+  border-color: var(--td-brand-color) !important;
+  color: #fff !important;
+  font-weight: 500;
 }
 .composer-input {
   display: flex;

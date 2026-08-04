@@ -400,6 +400,8 @@ export default {
 .usage-legend .legend-dot.prompt { background: var(--td-brand-color); }
 .usage-legend .legend-dot.completion { background: #8fd6ff; }
 .usage-granularity { margin-left: auto; display: flex; gap: 4px; }
+/* LLM 配置表单：双列布局。Base URL 与 API Key 并排，模型名称 span-2 占满两列。
+   保留信息密度，对齐成熟产品设置页的双列表单 */
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
 .form-grid .span-2 { grid-column: span 2; }
 /* t-form-item label-align=top 时 label 在输入框上方，加底部间距 */

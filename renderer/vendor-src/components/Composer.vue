@@ -1,13 +1,18 @@
 <template>
   <div class="composer">
     <div class="composer-toggles">
-      <t-tag :checked="store.ragEnabled" @click="toggleRag" checkable theme="primary" variant="light">检索本地知识库</t-tag>
-      <t-tag
+      <!-- 开关用原生 button + active class（原版方案，b941c5b 即如此，已验证稳定）。
+           之前改 t-tag checkable 选中态丢失（单向 checked 不更新内部 modelValue）；
+           再改 t-button + theme 切换，reactive 切换 theme 时背景异常（base+primary 该蓝却白）。
+           回到 button.mode-pill.active，用 TDesign token 配色：选中=蓝实底白字，未选=浅底灰字 -->
+      <button type="button" class="mode-pill" :class="{ active: store.ragEnabled }" @click="toggleRag">检索本地知识库</button>
+      <button
         v-if="store.thinkingSupported"
-        :checked="store.thinkingEnabled"
+        type="button"
+        class="mode-pill"
+        :class="{ active: store.thinkingEnabled }"
         @click="toggleThinking"
-        checkable theme="primary" variant="light"
-      >思考模式</t-tag>
+      >思考模式</button>
     </div>
     <div class="composer-input" :class="{ multiline: multiline }">
       <textarea
