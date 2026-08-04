@@ -42,15 +42,18 @@ That's the model this app follows: once your sources are configured, every conve
 - 💬 **Chat with your notes** — streaming Markdown answers, LaTeX (KaTeX), Mermaid diagrams, syntax-highlighted code blocks
 - 🔍 **Hybrid retrieval** — vector search + keyword search + filename/path matching, fused and reranked
 - 🗂️ **Obsidian vault connector** — point at a vault, everything inside gets indexed and kept in sync
-- 📄 **Multi-format ingestion** — Markdown, plain text, `.docx`, `.pdf`
+- 📄 **Multi-format ingestion** — Markdown, plain text, `.docx`, `.pdf` (including scanned/image-only PDFs via local OCR)
 - 🔗 **Cited answers** — every response links back to the exact source document(s) it drew from, click-to-reveal in Finder
 - ⭐ **Favorites** — star any answer and revisit it from a dedicated tab
 - 🧠 **Thinking mode** — surfaces the model's reasoning trace when the upstream model supports it, auto-detected
 - 🛠️ **MCP tool calling** — bring your own MCP servers (same config shape as Claude Desktop), toggle tool use per conversation
+- 🌐 **Web search** — its own MCP server (Exa first, DuckDuckGo fallback), auto-registered and manageable from the MCP tools list
+- 🧩 **Skill loading** — compatible with `~/.claude/skills/`-style directories; progressive loading keeps only name+description in the system prompt, full instructions fetched on demand
+- 🧵 **Cross-session memory** — when you leave a conversation, a background pass distills durable facts about you (role, preferences, long-running projects) into a small memory store, injected into future conversations
 - 📊 **Token usage dashboard** — input/output token charts by day / hour / minute, with running totals
 - 🔄 **Incremental sync** — MD5 content hashing means unchanged files are skipped entirely; deleted files are cleaned out of the index automatically
 - 🌓 **Idle-aware resource management** — the local AI model auto-unloads only when idle *and* the system is genuinely busy, and reloads transparently
-- 🔐 **Privacy by design** — nothing leaves your machine except the prompt you send to *your own* configured LLM endpoint
+- 🔐 **Privacy by design** — nothing leaves your machine except the prompt you send to *your own* configured LLM endpoint (OCR included — runs fully offline, no cloud API)
 
 ---
 
@@ -83,13 +86,15 @@ If the first launch throws a `NODE_MODULE_VERSION` mismatch (Electron's bundled 
 npx electron-rebuild -f -w better-sqlite3
 ```
 
-To build a distributable macOS app:
+To build a distributable app:
 
 ```bash
-npm run dist    # produces a DMG under dist/
+npm run dist                        # macOS DMG (default, dist/)
+npx electron-builder --linux        # Linux AppImage
+npx electron-builder --win          # Windows NSIS installer
 ```
 
-The app isn't code-signed or notarized yet — on another machine, first launch requires manually allowing it (System Settings → Privacy & Security).
+The macOS build isn't code-signed or notarized yet — on another machine, first launch requires manually allowing it (System Settings → Privacy & Security). Linux/Windows builds haven't been signed either, and haven't been run on a real machine of those platforms yet (see Roadmap).
 
 ---
 
@@ -97,12 +102,13 @@ The app isn't code-signed or notarized yet — on another machine, first launch 
 
 | Layer | Choice |
 |---|---|
-| Runtime | Electron (macOS packaging only for now) |
+| Runtime | Electron (macOS DMG, Linux AppImage, Windows NSIS — mac fully verified, Linux/Windows packaging tested, not yet field-verified on real machines) |
+| Renderer | Vite + Vue 3 + TDesign |
 | Local embedding + rerank | `@xenova/transformers` (transformers.js / ONNX, pure JS, no Python/GPU), in a dedicated `worker_thread` |
 | Vector store | `@lancedb/lancedb` (embedded, no server to run) |
 | Metadata store | `better-sqlite3`, FTS5 trigram tokenizer for CJK keyword search |
-| Document parsing | native `.md`/`.txt`, `mammoth` for `.docx`, `pdf-parse` for `.pdf` |
-| Rendering | `marked` + `DOMPurify`, `mermaid`, KaTeX, custom syntax highlighting |
+| Document parsing | native `.md`/`.txt`, `mammoth` for `.docx`, `pdf-parse` for `.pdf`; `pdfjs-dist` + `@napi-rs/canvas` + `tesseract.js` for scanned PDFs (local OCR, bundled language packs) |
+| Rendering | `marked` + `DOMPurify`, `mermaid`, KaTeX, `highlight.js` |
 | Agent tools | `@modelcontextprotocol/sdk` (MCP, stdio transport) |
 
 ---
@@ -111,17 +117,21 @@ The app isn't code-signed or notarized yet — on another machine, first launch 
 
 ```
 main/                  # Electron main process
-  db/                   # SQLite schema, gzip helpers
+  db/                    # SQLite schema (incl. facts table), gzip helpers
   vector/                # LanceDB wrapper
   ai/                    # local embedding/rerank worker, LLM client, agent loop
-  ingest/                # chunking, file parsers, Obsidian connector, MD5 incremental sync
+  ingest/                # chunking, file parsers (incl. OCR), Obsidian connector, MD5 incremental sync
   rag/                   # hybrid retrieval
-  mcp/                   # MCP client management
+  mcp/                   # MCP client management, web search MCP server
+  skills/                # ~/.claude/skills/-compatible Skill scanning
+  tools/                 # built-in tools (file access, web fetch, load_skill)
   index.js / ipc.js / preload.js / settings.js
-renderer/               # renderer process (no bundler; consumes UMD/ESM builds from node_modules directly)
-  index.html / app.js / styles.css
-  vendor-src/, vendor/   # highlight.js ships no ready-made browser global build, so esbuild bundles a small one
-build/                  # icons, mascot artwork, electron-builder output directory
+renderer/               # renderer process — Vite + Vue 3 + TDesign, built to renderer/dist/
+  App.vue / app-vue.js / store.js / markdown.js
+  views/                 # top-level views (chat, settings, knowledge, favorites)
+  vendor-src/components/ # chat bubbles, composer, conversation list, etc.
+build/                  # icons (icns/ico/png), mascot artwork
+resources/tessdata/     # bundled OCR language packs (chi_sim + eng)
 ```
 
 ---
@@ -138,7 +148,9 @@ Settings are entered from the in-app "设置" (Settings) page and persisted to `
 | 🧾 Custom headers | No | Some gateways require extra headers |
 | 🎛️ temperature / top_p / top_k / max_tokens | No | Advanced params, defaults used when blank |
 | 📝 System prompt | No | Falls back to the built-in default when blank |
-| 🛠️ MCP servers | No | JSON, same shape as Claude Desktop's `mcpServers` |
+| 🛠️ MCP servers | No | JSON, same shape as Claude Desktop's `mcpServers`; web search is registered here too |
+| 🧩 Skills | No | Toggle individual skills found under `~/.claude/skills/`; unrecognized/disabled skills stay invisible to the model |
+| 🧵 Cross-session memory | No | View and delete distilled facts from the "跨会话记忆" (Cross-session memory) panel |
 
 `autoSyncOnLaunch` (default `true`) and `autoSyncIntervalMinutes` (default `20`) can currently only be changed by editing `settings.json` directly — no UI toggle yet. They control an automatic MD5-diff sync pass that runs on launch and every N minutes afterward: changed/new files get re-indexed, and files removed from disk have their index and vectors cleaned up too — without you having to remember to click "sync".
 
@@ -148,7 +160,7 @@ The embedding/rerank models are fixed in code (`bge-small-zh-v1.5` + `bge-rerank
 
 Everything lives under `~/Library/Application Support/小怪兽知识库/`:
 
-- `kb.sqlite3` — document metadata, chunk text, conversation history (gzip-compressed), favorites
+- `kb.sqlite3` — document metadata, chunk text, conversation history (gzip-compressed), favorites, distilled cross-session facts
 - `lancedb/` — vector data
 - `models/` — cached local embedding/rerank models
 - `settings.json` — configuration
@@ -157,13 +169,12 @@ Everything lives under `~/Library/Application Support/小怪兽知识库/`:
 
 ## 🗺️ Roadmap / known limitations
 
-- 🖼️ **OCR** — scanned/image-only PDFs have no text layer and aren't supported; flagged as failed to index.
-- 🧵 **Cross-session long-term memory** — memory today is scoped to a single conversation. Planned: a separate fact-memory table, periodically distilling preferences from conversations, retrieved and injected into new conversations, with expiry/update support.
-- 🧩 **Skill loading** — the tool architecture already treats MCP tools and future Skill-loaded tools as one pool; no Skill directory UI yet. Planned to support `~/.claude/skills/`-style directories directly.
 - 🎙️ **Voice input** — not yet implemented; planned support for a configurable speech-to-text model.
 - 🖼️ **Images / more file types + object storage** — not yet implemented; planned object storage backend (e.g. Aliyun OSS / Tencent COS) paired with a vision model.
 - 🔔 **Update checks** — not yet implemented; planned to query the GitHub Releases API on launch.
-- 🪟 **Cross-platform** — Linux (AppImage) / Windows (NSIS) targets are already declared in `package.json`, but only macOS has actually been verified.
+- 🪟 **Cross-platform field verification** — Linux (AppImage) / Windows (NSIS) packaging has been verified to build correctly on macOS via `electron-builder`'s cross-compilation, but neither has been installed and run on a real Linux/Windows machine yet.
+- 🖼️ **OCR performance** — scanned PDFs are supported (local, offline), but OCR is CPU-heavy (several seconds to tens of seconds per page); large batches of scanned files will slow down sync noticeably. No pause/skip toggle yet.
+- 🧵 **Memory extraction cost** — cross-session facts are distilled via one LLM call per conversation you leave (not per message), but this still means every conversation you navigate away from triggers a background completion request.
 
 ---
 

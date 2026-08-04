@@ -97,15 +97,15 @@ renderer/
 4. **已提交**：tool_calls 持久化、思考模式修复、引用修复这批改动早已 commit。
 
 ### P1 — 架构演进（V2 进行中：refactor/v2-vite 分支）
-5. **渲染层迁移 Vue 3 + TDesign**（v0.4.0）：已从原生 DOM 迁到 Vite + Vue 3 + TDesign。Phase 1（vite 构建链路）/ Phase 2（单 Vue 应用 + TDesign 布局）/ Phase 3（对话层 TDesign 化）主干完成。剩余 Phase 4：清理 + 主题切换验收。设计文档见 `docs/superpowers/specs/2026-08-03-v2-vite-tdesign-refactor-design.md`。
+5. **渲染层迁移 Vue 3 + TDesign**（v0.4.0）：已从原生 DOM 迁到 Vite + Vue 3 + TDesign。Phase 1（vite 构建链路）/ Phase 2（单 Vue 应用 + TDesign 布局）/ Phase 3（对话层 TDesign 化）/ Phase 4（清理迁移期遗留：markdown.js 直接 import 不再挂 window 全局、MessageBubble 去重复实现、移除未用的 @tdesign-vue-next/chat）主干完成。设计文档见 `docs/superpowers/specs/2026-08-03-v2-vite-tdesign-refactor-design.md`。剩余：暗色主题下新增功能（跨会话记忆卡片/技能列表）的视觉验收还没专门测过。
 6. **Sub-agent / 并行任务**：聊过，暂缓。先把 tool 并行做扎实。
-7. **Web Search MCP 化**：目前 web_search 是内置函数，用户在 MCP 设置里看不到它作为独立 server。社区有 brave-search / tavily MCP server 可考虑接入。
 
-### P2 — 能力补全
-8. **跨会话记忆**：独立 facts 表，定期从对话提炼用户画像，新会话注入相关事实。白皮书里已承诺。
-9. **Skill 加载**：工具池架构已支持，缺管理界面，计划兼容 `~/.claude/skills/` 目录格式。
-10. **OCR**：扫描件 PDF 无文本层，目前标记索引失败。
-11. **Linux/Windows 打包**：package.json 已声明目标，只在 macOS 验证过。
+### P2 — 已完成（v0.5.0）
+7. **Web Search MCP 化**：web_search 已从内置函数改造成 stdio MCP server（`main/mcp/webSearchServer.js`），设置页 MCP 工具列表可见可管理，保留 Exa 优先/DuckDuckGo 降级。首次启动自动写入一次默认配置，用户移除后不再补回。
+8. **跨会话记忆**：`facts` 表已加（`main/db/sqlite.js`）。用户离开会话时后台调 LLM 提炼（`extractConversationFacts`，`main/ipc.js`），不是每轮问答后触发。新会话读最近 20 条注入系统提示词（`main/ai/agentLoop.js`）。设置页"跨会话记忆"卡片可查看/删除。
+9. **Skill 加载**：`main/skills/skillsManager.js` 扫描 `~/.claude/skills/` 下的 SKILL.md，渐进式加载——系统提示词只放 name+description 目录，新增 `load_skill` 工具（`main/tools/skillTool.js`）供模型按需读取完整正文。设置页"技能（Skill）"区块管理开关，默认全部未启用。
+10. **OCR**：`main/ingest/ocr.js`，pdfjs-dist 渲染页面 + @napi-rs/canvas（无系统依赖） + tesseract.js 识别，中英语言包随包打包在 `resources/tessdata/`（全程本地离线，不联网下载语言包）。`fileReaders.js` 原"无文本层直接报错"分支已改为先走 OCR。已知局限：CPU 密集，大批量扫描件会明显拖慢同步；没有跳过/暂停开关。
+11. **Linux/Windows 打包**：`titleBarStyle` 已按 `process.platform` 条件化（原无条件 `hiddenInset` 是 macOS 专属，非 mac 平台会双重顶部留白），补了 `window.kb.platform`、`build/icon.ico`、package.json 的 win/linux target。Linux AppImage / Windows NSIS 已在 macOS 上用 electron-builder 交叉编译验证跑通，**但没有在真实 Linux/Windows 机器上装机运行过**，`main/tools/builtinTools.js` 的 `safePath()` 在 Windows 大小写不敏感文件系统下的行为也没有真机验证。
 
 ## 发布流程
 
