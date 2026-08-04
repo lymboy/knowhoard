@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("kb", {
+  // 只读平台标记：渲染层用它判断是否需要 macOS 专属的红黄绿按钮避让 padding
+  // （titleBarStyle: "hiddenInset" 只在 macOS 生效，Windows/Linux 走系统原生标题栏）
+  platform: process.platform,
   shell: {
     openExternal: (url) => ipcRenderer.invoke("shell:openExternal", url),
   },
@@ -59,6 +62,15 @@ contextBridge.exposeInMainWorld("kb", {
     rename: (id, title) => ipcRenderer.invoke("conversations:rename", { id, title }),
     remove: (id) => ipcRenderer.invoke("conversations:delete", id),
     getMessages: (id, options) => ipcRenderer.invoke("conversations:getMessages", id, options),
+    leave: (id) => ipcRenderer.invoke("conversations:leave", id),
+  },
+  facts: {
+    list: () => ipcRenderer.invoke("facts:list"),
+    remove: (id) => ipcRenderer.invoke("facts:remove", id),
+  },
+  skills: {
+    list: () => ipcRenderer.invoke("skills:list"),
+    toggle: (dir, enabled) => ipcRenderer.invoke("skills:toggle", { dir, enabled }),
   },
   chat: {
     send: (params) => ipcRenderer.invoke("chat:send", params),

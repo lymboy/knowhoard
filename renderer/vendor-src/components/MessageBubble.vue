@@ -39,7 +39,7 @@
 
 <script>
 // Options API：methods/computed Vue 直接挂实例，render 的 _ctx 可访问，响应式正常。
-import { renderMarkdown, highlightAndRenderDiagrams } from "../../markdown.js";
+import { renderMarkdown, highlightAndRenderDiagrams as enhanceContent } from "../../markdown.js";
 import ToolCallsBlock from "./ToolCallsBlock.vue";
 import CitationChips from "./CitationChips.vue";
 import userAvatarUrl from "../../assets/user-avatar.png";
@@ -125,49 +125,7 @@ export default {
     enhance() {
       const el = this.$refs.bubbleEl;
       if (!el) return;
-      el.querySelectorAll("pre code:not(.hljs)").forEach((block) => {
-        if (block.closest(".mermaid")) return;
-        try { window.hljs.highlightElement(block); } catch (e) {}
-        this.wrapCodeChrome(block);
-      });
-      const mmds = el.querySelectorAll("pre.mermaid");
-      if (mmds.length) {
-        window.mermaid.run({ nodes: Array.from(mmds) }).catch(() => {});
-      }
-      try {
-        window.renderMathInElement(el, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "\\[", right: "\\]", display: true },
-            { left: "$", right: "$", display: false },
-            { left: "\\(", right: "\\)", display: false },
-          ],
-          throwOnError: false,
-        });
-      } catch (e) {}
-    },
-    wrapCodeChrome(codeEl) {
-      const pre = codeEl.parentElement;
-      if (!pre || pre.parentElement?.classList.contains("code-block")) return;
-      if (pre.dataset.chromed) return;
-      pre.dataset.chromed = "1";
-      const langMatch = (codeEl.className || "").match(/language-(\S+)/);
-      const lang = langMatch ? langMatch[1] : "text";
-      const wrapper = document.createElement("div");
-      wrapper.className = "code-block";
-      const header = document.createElement("div");
-      header.className = "code-block-header";
-      const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      header.innerHTML = '<span class="lang">' + esc(lang) + '</span><button class="copy-btn">复制</button>';
-      header.querySelector(".copy-btn").addEventListener("click", () => {
-        navigator.clipboard.writeText(codeEl.textContent || "");
-        const btn = header.querySelector(".copy-btn");
-        btn.textContent = "已复制";
-        setTimeout(() => (btn.textContent = "复制"), 1500);
-      });
-      pre.parentElement.insertBefore(wrapper, pre);
-      wrapper.appendChild(header);
-      wrapper.appendChild(pre);
+      enhanceContent(el);
     },
     copyContent() {
       try {

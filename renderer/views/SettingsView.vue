@@ -74,6 +74,20 @@
       </div>
     </t-card>
 
+    <!-- 跨会话记忆 -->
+    <t-card class="panel" :bordered="false" title="跨会话记忆">
+      <div class="hint" style="margin-bottom:12px">离开一个会话时，AI 会从对话内容里提炼值得长期记住的信息（职业、偏好、长期项目背景等），新会话会带上这些背景。提炼错了可以在这里删掉。</div>
+      <t-list split>
+        <t-list-item v-for="f in facts" :key="f.id">
+          <t-list-item-meta :description="f.content" />
+          <template #action><t-button theme="default" variant="text" size="small" @click="removeFact(f.id)">删除</t-button></template>
+        </t-list-item>
+        <t-list-item v-if="!facts.length">
+          <span class="hint">还没有记住任何信息，多聊几次之后会自动出现在这里。</span>
+        </t-list-item>
+      </t-list>
+    </t-card>
+
     <!-- 工具设置 -->
     <t-card class="panel" :bordered="false" title="工具设置">
       <template #actions>
@@ -98,6 +112,19 @@
           </t-list-item>
           <t-list-item v-if="!builtinTools.length">
             <span class="hint">无法加载内置工具列表</span>
+          </t-list-item>
+        </t-list>
+      </div>
+
+      <div class="tool-section">
+        <div class="tool-section-header"><h3>技能（Skill）</h3><span class="hint">兼容 ~/.claude/skills/ 目录格式。开启后技能名称和简介会出现在 AI 的背景信息里，AI 判断相关时会主动读取完整说明再执行。</span></div>
+        <t-list split>
+          <t-list-item v-for="s in skills" :key="s.dir">
+            <t-list-item-meta :title="s.name" :description="s.description" />
+            <template #action><t-switch v-model="s.enabled" @change="(v)=>onSkillToggle(s.dir,v)" /></template>
+          </t-list-item>
+          <t-list-item v-if="!skills.length">
+            <span class="hint">没有在 ~/.claude/skills/ 下扫描到任何技能。</span>
           </t-list-item>
         </t-list>
       </div>
@@ -130,15 +157,14 @@
 </template>
 
 <script>
-// Options API：设置视图。6 项功能（配置模型/选择模型/模型下拉/检测think/向量库检索/MCP工具配置）
-// 全部从 app.js 忠实迁移，逻辑不变只换 TDesign 组件。向量库检索开关在 Composer.vue（ragEnabled）。
+// Options API：设置视图。核心功能：配置模型/选择模型/模型下拉/检测think/向量库检索/MCP工具配置/
+// 跨会话记忆管理。向量库检索开关在 Composer.vue（ragEnabled）。
 import { store, updateToolAvailability, updateThinkingToggleVisibility } from "../store.js";
 
 const BUILTIN_TOOL_LABELS = {
   read_file: { icon: "📄", label: "读取文件", hint: "读取指定文件的完整内容" },
   list_directory: { icon: "📁", label: "浏览目录", hint: "列出目录下的文件和子目录" },
   search_files: { icon: "🔍", label: "搜索文件", hint: "按关键词在文件中全文搜索" },
-  web_search: { icon: "🌐", label: "网络搜索", hint: "在互联网上搜索信息，用于调研任务" },
   fetch_url: { icon: "🔗", label: "抓取网页", hint: "获取指定 URL 的网页内容" },
   download_file: { icon: "⬇️", label: "下载文件", hint: "下载文件到本地沙箱目录（只存不执行）" },
 };
@@ -162,11 +188,14 @@ export default {
       // system prompt
       systemPrompt: "",
       systemPromptSaveHint: "",
+      // 跨会话记忆
+      facts: [],
       // tools
       toolsEnabled: true,
       exaApiKey: "",
       exaSaveHint: "",
       builtinTools: [],
+      skills: [],
       mcpServersDraft: {},
       mcpNew: { name:"", command:"", args:"" },
       mcpResult: "",
@@ -213,11 +242,17 @@ export default {
       this.customHeaders = entries.length ? entries.map(([k,v])=>({key:k,value:v})) : [{key:"",value:""}];
       this.mcpServersDraft = { ...(settings.mcpServers || {}) };
       await this.renderBuiltinToolList();
+      await this.refreshSkillList();
       this.toolsEnabled = settings.toolsEnabled !== false;
       this.exaApiKey = settings.exaApiKey || "";
       await updateToolAvailability(await kb().mcp.hasTools());
       if (this.llm.baseUrl && this.llm.apiKey) this.refreshModelList();
       this.refreshTokenUsage();
+      this.facts = await kb().facts.list();
+    },
+    async removeFact(id) {
+      await kb().facts.remove(id);
+      this.facts = this.facts.filter((f) => f.id !== id);
     },
     collectCustomHeaders() {
       const h = {};
@@ -284,6 +319,17 @@ export default {
     async saveExa() {
       const key = (this.exaApiKey||"").trim();
       await kb().settings.update({ exaApiKey: key });
+      // web-search MCP server 的 API key 走它自己的 env.EXA_API_KEY（进程启动时传入，运行中改不了），
+      // 改了 key 要把 server 配置里的 env 也同步更新，再 reconnect 让新 key 生效
+      if (this.mcpServersDraft["web-search"]) {
+        this.mcpServersDraft["web-search"] = {
+          ...this.mcpServersDraft["web-search"],
+          env: { ...this.mcpServersDraft["web-search"].env, EXA_API_KEY: key },
+        };
+        await kb().settings.update({ mcpServers: this.mcpServersDraft });
+        await kb().mcp.reconnect();
+        await updateToolAvailability(await kb().mcp.hasTools());
+      }
       this.exaSaveHint = key ? "已保存，搜索将使用 Exa AI" : "已保存，搜索将使用 DuckDuckGo";
       setTimeout(()=>this.exaSaveHint="", 3000);
     },
@@ -301,6 +347,16 @@ export default {
     async onBuiltinToggle(name, v) {
       await kb().builtinTools.toggle(name, v);
       await updateToolAvailability(await kb().mcp.hasTools());
+    },
+    async refreshSkillList() {
+      try {
+        this.skills = await kb().skills.list();
+      } catch {
+        this.skills = [];
+      }
+    },
+    async onSkillToggle(dir, enabled) {
+      await kb().skills.toggle(dir, enabled);
     },
     async addMcpServer() {
       const name = (this.mcpNew.name||"").trim();

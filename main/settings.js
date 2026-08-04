@@ -25,10 +25,17 @@ const DEFAULTS = {
     read_file: true,
     list_directory: true,
     search_files: true,
-    web_search: true,
     fetch_url: true,
     download_file: true,
   },
+  mcpServers: {},
+  // web_search 曾是内置工具，现在改造成独立 MCP server（main/mcp/webSearchServer.js）。
+  // 首次启动时自动写入 mcpServers.web-search 一次；标记置 true 后不再重复插入——
+  // 这样用户手动移除它之后，重启 app 不会又被自动加回来
+  webSearchMcpBootstrapped: false,
+  // Skill 开关：key 是 ~/.claude/skills/<dir> 的目录名，value 是是否启用。
+  // 没扫到过的 Skill 不在这里，默认视为未启用（新增的 Skill 目录不会自动开启）
+  skillsEnabled: {},
 };
 
 let settingsPath = null;

@@ -81,6 +81,11 @@ export async function loadConversations() {
 // ------ 切换会话：载入历史消息到 messages[] ------
 const PAGE_SIZE = 30;
 export async function loadConversation(id) {
+  // 离开上一个会话时触发跨会话记忆提炼（fire-and-forget，不 await，不阻塞切换）。
+  // 只在真的切到别的会话时触发，重复点同一个会话不重复提炼
+  const previousId = store.activeConversationId;
+  if (previousId && previousId !== id) getKb().conversations.leave(previousId);
+
   store.activeConversationId = id;
   store.view = "chat";
   await loadConversations();

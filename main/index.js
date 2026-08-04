@@ -4,11 +4,12 @@ const os = require("os");
 
 const { initDb } = require("./db/sqlite");
 const { initVectorStore } = require("./vector/store");
-const { initSettings, getSettings } = require("./settings");
+const { initSettings, getSettings, updateSettings } = require("./settings");
 const { AiWorkerClient } = require("./ai/aiWorkerClient");
-const { McpManager } = require("./mcp/mcpClient");
+const { McpManager, ELECTRON_NODE_SENTINEL } = require("./mcp/mcpClient");
 const { TOOL_DEFINITIONS } = require("./tools/builtinTools");
 const webTools = require("./tools/webTools");
+const { TOOL_DEFINITIONS: SKILL_TOOL_DEFINITIONS } = require("./tools/skillTool");
 const { EMBEDDING_DIMENSIONS } = require("./ai/dimensions");
 const { registerIpcHandlers } = require("./ipc");
 const sync = require("./ingest/sync");
@@ -123,7 +124,10 @@ function createWindow() {
     minWidth: 860,
     minHeight: 560,
     title: APP_NAME,
-    titleBarStyle: "hiddenInset", // 去掉那条灰色标题栏文字，红黄绿三个按钮保留、悬浮在内容上方
+    // hiddenInset 只在 macOS 生效（去掉标题栏文字、红黄绿按钮悬浮）；Windows/Linux 上 Electron
+    // 会静默忽略这个值退回系统原生标题栏。不显式区分的话渲染层仍会按 mac 逻辑给 sidebar 顶部
+    // 让 38px（见 App.vue .sidebar），在原生标题栏之上再叠一层空白，产生双重顶部留白
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     icon: path.join(__dirname, "..", "build", "icon.png"),
     backgroundColor: "#0c0a1a",
     webPreferences: {
@@ -210,13 +214,28 @@ app.whenReady().then(async () => {
     }
   );
   const mcpManager = new McpManager();
-  const settings = getSettings();
+  let settings = getSettings();
   // 初始化下载沙箱
   webTools.initSandbox(userDataPath);
-  // 注册内置工具（文件工具 + 网络工具），然后从 settings 恢复每个工具的开关状态
-  const allBuiltinTools = [...TOOL_DEFINITIONS, ...webTools.getToolDefinitions()];
+  // 注册内置工具（文件工具 + 网络工具 + Skill 加载），然后从 settings 恢复每个工具的开关状态
+  const allBuiltinTools = [...TOOL_DEFINITIONS, ...webTools.getToolDefinitions(), ...SKILL_TOOL_DEFINITIONS];
   mcpManager.setBuiltinTools(allBuiltinTools);
   mcpManager.restoreBuiltinState(settings.builtinTools);
+
+  // web_search 曾是内置工具，现在是独立 MCP server，首次启动自动写入一次（用户手动移除后不再补回）
+  if (!settings.webSearchMcpBootstrapped) {
+    settings = updateSettings({
+      webSearchMcpBootstrapped: true,
+      mcpServers: {
+        ...(settings.mcpServers || {}),
+        "web-search": {
+          command: ELECTRON_NODE_SENTINEL,
+          args: [path.join(__dirname, "mcp", "webSearchServer.js")],
+          env: { EXA_API_KEY: settings.exaApiKey || "" },
+        },
+      },
+    });
+  }
 
   if (settings.mcpServers && Object.keys(settings.mcpServers).length) {
     mcpManager.connectAll(settings.mcpServers).catch((err) => {

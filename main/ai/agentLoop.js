@@ -199,6 +199,8 @@ async function runAgentTurn(params) {
     mcpEnabled,
     thinkingEnabled,
     systemPrompt,
+    facts,
+    skillCatalog,
     llmConfig,
     aiClient,
     mcpManager,
@@ -230,6 +232,26 @@ async function runAgentTurn(params) {
     messages.push({
       role: "system",
       content: `以下是用户自定义的额外要求，在不改变你上述固定身份的前提下尽量照做：\n${systemPrompt}`,
+    });
+  }
+
+  // 跨会话记忆：之前的对话里沉淀出的用户事实（职业、偏好、长期项目背景等）。
+  // 框定为「参考背景」而非指令——避免模型把过时或提炼错误的事实当成必须遵守的要求。
+  if (facts && facts.length) {
+    messages.push({
+      role: "system",
+      content: `以下是关于用户的背景信息（来自之前的对话，仅供参考，不代表本轮对话的具体要求）：\n${facts.map((f) => `- ${f}`).join("\n")}`,
+    });
+  }
+
+  // Skill 目录：渐进式加载——只列出 name+description（很短），完整正文靠 load_skill 工具
+  // 按需读取，不在系统提示词里塞满每个 Skill 的完整指令（那样几个 Skill 就能把提示词撑爆）
+  if (skillCatalog && skillCatalog.length) {
+    messages.push({
+      role: "system",
+      content:
+        `以下是当前可用的技能（Skill）目录，如果某个技能和当前任务相关，用 load_skill 工具读取它的完整说明再执行：\n` +
+        skillCatalog.map((s) => `- ${s.name}：${s.description}`).join("\n"),
     });
   }
 

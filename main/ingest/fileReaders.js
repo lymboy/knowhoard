@@ -14,9 +14,11 @@ function computeMd5(buffer) {
 
 /**
  * 只读文件内容，绝不写回原文件——这是保护用户原始资料的硬规则。
+ * @param {string} filePath
+ * @param {(info: {page: number, total: number}) => void} [onOcrPageProgress] OCR 逐页进度回调（仅扫描件 PDF 会用到）
  * @returns {Promise<{text: string, hash: string, size: number, mtime: number}>}
  */
-async function readFileContent(filePath) {
+async function readFileContent(filePath, onOcrPageProgress) {
   const ext = path.extname(filePath).toLowerCase();
   const stat = await fs.promises.stat(filePath);
   const buffer = await fs.promises.readFile(filePath);
@@ -34,12 +36,14 @@ async function readFileContent(filePath) {
     const result = await pdfParse(buffer);
     text = result.text;
     // pdf-parse 走的是文本层提取（基于 pdf.js），对由 Markdown/Word 转出来的文本型 PDF 效果很好；
-    // 但扫描件/图片型 PDF 没有文本层，会提取出几乎空白的内容——这里识别出来直接报错，
-    // 好过悄悄建一条空索引让用户以为"已索引"却什么都搜不到。OCR 支持先不做，留在后续。
+    // 但扫描件/图片型 PDF 没有文本层，提取出的内容几乎空白——这种情况改走本地 OCR（main/ingest/ocr.js），
+    // 而不是直接报错甩给用户。OCR 比文本提取慢得多，只在真正需要时才触发。
     if (text.trim().length < 20 && buffer.length > 5000) {
-      throw new Error(
-        "提取到的文本过少，这个 PDF 可能是扫描/图片型，没有文本层，暂不支持 OCR 解析（后续可能支持）"
-      );
+      const { ocrPdfBuffer } = require("./ocr");
+      text = await ocrPdfBuffer(buffer, onOcrPageProgress);
+      if (text.trim().length < 20) {
+        throw new Error("OCR 未能从这个 PDF 中识别出有效文字，可能图片质量过低或页面为空白");
+      }
     }
   } else {
     throw new Error(`不支持的文件类型: ${ext}`);

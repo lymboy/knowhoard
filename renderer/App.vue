@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ 'sidebar--native-titlebar': !isMac }">
       <div class="brand">
         <img :src="iconUrl" alt="logo" class="brand-logo" />
         <div class="brand-text">
@@ -96,7 +96,14 @@ export default {
       ],
     };
   },
-  computed: { store() { return store; }, iconUrl() { return iconUrl; }, mascotUrl() { return mascotUrl; } },
+  computed: {
+    store() { return store; },
+    iconUrl() { return iconUrl; },
+    mascotUrl() { return mascotUrl; },
+    // window.kb.platform 由 preload 同步暴露（process.platform）。非 mac 平台用系统原生标题栏，
+    // sidebar 不需要给红黄绿按钮让出顶部 38px（见 createWindow 里 titleBarStyle 的平台判断）
+    isMac() { return window.kb?.platform === "darwin"; },
+  },
   async mounted() {
     // 暴露给现有 Vue 组件（ConversationList/ChatView）调的桥：切视图 + 确认框
     window.kbAppBridge = { switchView: this.switchView, showConfirm };
@@ -151,6 +158,9 @@ export default {
 }
 .sidebar button, .sidebar input, .sidebar a, .sidebar .conversation-item,
 .sidebar .new-conversation, .sidebar .nav-tab { -webkit-app-region: no-drag; }
+/* Windows/Linux 走系统原生标题栏（无红黄绿悬浮按钮），38px 避让 padding 没有意义，
+   顶部留白改回和左右一致的 12px，避免在原生标题栏之上再叠一层空白 */
+.sidebar.sidebar--native-titlebar { padding-top: 12px; }
 
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 12px; }
 .brand-logo { width: 34px; height: 34px; border-radius: 9px; }

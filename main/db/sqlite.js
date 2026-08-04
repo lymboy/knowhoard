@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS favorites (
   created_at INTEGER NOT NULL,
   FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
+
+-- 跨会话记忆：独立事实条目，不挂在某一条 conversation 下（用户画像跨会话有效）。
+-- 会话结束时后台提炼一次，写入这里；新会话开始时读回相关事实注入系统提示词。
+-- source_conversation_id 只做溯源（哪次对话提炼出的），conversation 被删不级联删事实——
+-- 用户画像的价值在于长期积累，不应该因为某次对话记录被清理就连带丢失。
+CREATE TABLE IF NOT EXISTS facts (
+  id TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  source_conversation_id TEXT,
+  created_at INTEGER NOT NULL
+);
 `;
 
 let db = null;

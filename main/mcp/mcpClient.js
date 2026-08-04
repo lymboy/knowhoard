@@ -22,6 +22,12 @@ async function loadSdk() {
 
 const BUILTIN_PREFIX = "builtin";
 
+// 内置的 web-search MCP server（main/mcp/webSearchServer.js）用这个哨兵值代替 command。
+// 打包后的 app 没有独立 node 可执行文件，也不能把当前机器的绝对路径存进 settings.json（换机器/
+// 换安装位置就失效）——所以启动时识别这个哨兵，换成 Electron 自身可执行文件 + ELECTRON_RUN_AS_NODE=1，
+// 这是 Electron 官方推荐的"用 Electron 二进制当 Node 跑普通脚本"的方式。
+const ELECTRON_NODE_SENTINEL = "__electron_node__";
+
 class McpManager {
   constructor() {
     this.clients = new Map();       // serverName -> { client, tools }
@@ -74,10 +80,15 @@ class McpManager {
     const results = [];
     for (const [name, cfg] of entries) {
       try {
+        const isElectronNode = cfg.command === ELECTRON_NODE_SENTINEL;
         const transport = new StdioClientTransport({
-          command: cfg.command,
+          command: isElectronNode ? process.execPath : cfg.command,
           args: cfg.args || [],
-          env: { ...process.env, ...(cfg.env || {}) },
+          env: {
+            ...process.env,
+            ...(isElectronNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+            ...(cfg.env || {}),
+          },
         });
         const client = new Client(
           { name: "personal-kb", version: "0.1.0" },
@@ -182,4 +193,4 @@ class McpManager {
   }
 }
 
-module.exports = { McpManager };
+module.exports = { McpManager, ELECTRON_NODE_SENTINEL };

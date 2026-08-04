@@ -2,7 +2,6 @@
 // 替代旧 app.js（经典脚本）+ 3 个分散 mount 点。所有视图由 App.vue 内部切换，状态从 store 派生。
 import { createApp } from "vue";
 import TDesign from "tdesign-vue-next";
-import TDesignChat from "@tdesign-vue-next/chat";
 import App from "./App.vue";
 import "./lib-globals.js";
 import { setKb, store, handleChatEvent, setAiStatus } from "./store.js";
@@ -14,9 +13,13 @@ setKb(window.kb);
 // 初始化 markdown 渲染器（mermaid 主题 + marked renderer）
 initMarkdown();
 
+// @tdesign-vue-next/chat 的 ChatItem/ChatList 曾尝试接入做对话气泡框架组件，
+// 但其 markdown 内容渲染下沉到 tdesign-web-components + omi-vueify（Omi web component），
+// 在 Vite+Electron 打包环境下有首帧渲染时序问题（复杂 prop 在 Omi connectedCallback 前未就绪，
+// 导致 shadowRoot 渲染空内容）。已改用 tdesign-vue-next 基础组件（t-avatar/t-collapse/t-button）
+// 手动拼气泡结构，markdown 走本项目 markdown.js 统一渲染，功能等价。不再引入 @tdesign-vue-next/chat。
 const app = createApp(App);
 app.use(TDesign);
-app.use(TDesignChat);
 app.mount("#app");
 
 // 接 AI 状态事件到 store（AiStatus.vue 读 store.aiStatus）

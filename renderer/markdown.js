@@ -1,10 +1,11 @@
 // Markdown 渲染共享模块：marked + DOMPurify + highlight.js + mermaid + katex。
-// 从 app.js 抽出来，Vue 组件和原生 app.js 都用同一套，避免两份实现漂移。
-//
-// 依赖全局：marked / DOMPurify / hljs / mermaid / renderMathInElement（katex auto-render），
-// 这些仍由 index.html 的经典 <script> 引入挂到 window（vue module 脚本晚于它们执行，能拿到）。
+// 所有 Vue 组件统一走这一份实现，避免多处各写一套渲染/高亮逻辑而漂移。
 
-/* global marked, DOMPurify, hljs, mermaid, renderMathInElement */
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+import hljs from "highlight.js";
+import mermaid from "mermaid";
+import renderMathInElement from "katex/contrib/auto-render";
 
 // Mermaid 主题跟随当前页面主题（亮/暗），不能写死深色——
 // 亮色主题下深色节点配浅色文字完全看不清
@@ -113,8 +114,10 @@ function wrapCodeBlockWithChrome(codeEl) {
 
 // 在给定容器里做代码高亮 + mermaid 渲染 + 公式渲染。
 // Vue 组件用 v-html 渲染完 markdown 后调这个，补上 marked 管不到的增强。
+// 流式消息会多次触发这个函数（每次 markdown 增量重渲染都要重新增强），
+// 用 :not(.hljs) 排除已高亮过的代码块，避免 hljs.highlightElement 对同一元素重复调用报警告。
 export async function highlightAndRenderDiagrams(container) {
-  container.querySelectorAll("pre code").forEach((block) => {
+  container.querySelectorAll("pre code:not(.hljs)").forEach((block) => {
     if (block.closest(".mermaid")) return;
     hljs.highlightElement(block);
     wrapCodeBlockWithChrome(block);

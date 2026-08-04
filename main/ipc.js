@@ -8,6 +8,7 @@ const { compressText, decompressText } = require("./db/compress");
 const sync = require("./ingest/sync");
 const { getObsidianStatus } = require("./ingest/obsidian");
 const { runAgentTurn } = require("./ai/agentLoop");
+const { scanSkills } = require("./skills/skillsManager");
 const { probeThinkingSupport, listModels, chatCompletion } = require("./ai/llmClient");
 
 const HISTORY_CHAR_BUDGET = 12000; // 粗略按 1 token ≈ 2 字符估算，约等于 6000 token 的历史预算，留够空间给系统提示词/检索上下文/回答
@@ -214,6 +215,21 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     return mcpManager.listBuiltinToolInfo();
   });
 
+  // ---------- Skill 管理 ----------
+  // 列表返回扫描到的所有 Skill + 各自的启用状态（未在 settings 里记录过的默认未启用）
+  ipcMain.handle("skills:list", () => {
+    const settings = getSettings();
+    const enabled = settings.skillsEnabled || {};
+    return scanSkills().map((s) => ({ ...s, enabled: !!enabled[s.dir] }));
+  });
+  ipcMain.handle("skills:toggle", (_e, { dir, enabled }) => {
+    const settings = getSettings();
+    const current = { ...(settings.skillsEnabled || {}) };
+    current[dir] = enabled;
+    updateSettings({ skillsEnabled: current });
+    return true;
+  });
+
   // ---------- Token 用量统计 ----------
   ipcMain.handle("stats:tokenUsage", (_e, { granularity = "day" } = {}) => {
     // 按小时/按分钟的话，数据库里的原始行数可能很大，绝不能不设上限地扫全表再聚合——
@@ -295,6 +311,22 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
   ipcMain.handle("conversations:delete", (_e, id) => {
     db.prepare(`DELETE FROM messages WHERE conversation_id = ?`).run(id);
     db.prepare(`DELETE FROM conversations WHERE id = ?`).run(id);
+    return true;
+  });
+
+  // 用户离开这个会话（切到别的会话/关掉对话视图）时调用，触发跨会话记忆提炼。
+  // fire-and-forget：不 await，不阻塞 renderer 的视图切换，提炼失败也不影响任何前台体验。
+  ipcMain.handle("conversations:leave", (_e, id) => {
+    if (id) extractConversationFacts(id);
+    return true;
+  });
+
+  // ---------- 跨会话记忆（facts） ----------
+  ipcMain.handle("facts:list", () =>
+    db.prepare(`SELECT id, content, created_at FROM facts ORDER BY created_at DESC`).all()
+  );
+  ipcMain.handle("facts:remove", (_e, id) => {
+    db.prepare(`DELETE FROM facts WHERE id = ?`).run(id);
     return true;
   });
 
@@ -459,6 +491,55 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
     }
   }
 
+  // 跨会话记忆：从一个会话的对话内容里提炼"值得长期记住的用户事实"（职业、偏好、长期项目背景等），
+  // 写入 facts 表。不在每轮问答后触发（成本高、易把一次性话题误记成长期画像），
+  // 而是在用户离开这个会话（切到别的会话/关视图）时后台调一次，此时这个会话的内容相对完整、
+  // 提炼质量更高，调用频率也天然被"会话数"限制住而不是"消息数"。
+  // 复用 generateConversationTitle 的节奏：非阻塞、失败静默、只在有实际内容时才调 LLM。
+  async function extractConversationFacts(conversationId) {
+    try {
+      const rows = db.prepare(
+        `SELECT role, content FROM messages WHERE conversation_id = ? AND role IN ('user','assistant') ORDER BY created_at ASC`
+      ).all(conversationId);
+      if (rows.length < 2) return; // 没有完整问答，没什么可提炼的
+
+      const settings = getSettings();
+      if (!settings.llm?.baseUrl || !settings.llm?.model) return;
+
+      const turns = rows.map((r) => ({ role: r.role, content: decompressText(r.content) || "" }));
+      const transcript = turns
+        .map((t) => `${t.role === "user" ? "用户" : "助手"}: ${t.content.slice(0, 500)}`)
+        .join("\n")
+        .slice(0, 6000); // 长会话截断，够提炼画像用，不必喂全文
+
+      const promptMessages = [
+        {
+          role: "system",
+          content:
+            "从下面这段对话里，提炼出值得长期记住的、关于用户本人的事实性信息" +
+            "（例如职业、技术背景、长期项目、偏好、习惯），不要提炼这次对话的临时性内容或一次性话题。" +
+            "每条事实一行，不超过5条，不要编号、不要解释。如果没有值得记住的用户信息，只输出：无。",
+        },
+        { role: "user", content: transcript },
+      ];
+      const result = await chatCompletion({ ...settings.llm, thinkingEnabled: false }, promptMessages, {});
+      const text = (result.content || "").trim();
+      if (!text || text === "无") return;
+
+      const facts = text.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 5);
+      const insert = db.prepare(
+        `INSERT INTO facts (id, content, source_conversation_id, created_at) VALUES (?, ?, ?, ?)`
+      );
+      const now = Date.now();
+      for (const fact of facts) {
+        insert.run(randomUUID(), fact, conversationId, now);
+      }
+    } catch (e) {
+      // 事实提炼失败不影响主流程，静默（同 generateConversationTitle 的处理原则）
+      console.error("[extractConversationFacts] error", e.message);
+    }
+  }
+
   // ---------- 聊天 ----------
   ipcMain.handle("chat:send", async (_e, params) => {
     const { conversationId, message, ragEnabled, mcpEnabled, thinkingEnabled, requestId } =
@@ -522,6 +603,16 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
       } catch (e) { /* 落库失败不中断流式 */ }
     };
 
+    // 跨会话记忆：注入最近的用户事实（最多20条，按时间倒序取最新的，避免无限增长把系统提示词撑爆）
+    const facts = db
+      .prepare(`SELECT content FROM facts ORDER BY created_at DESC LIMIT 20`)
+      .all()
+      .map((r) => r.content);
+
+    // Skill 目录：只列出用户在设置页开启过的 Skill 的 name+description，完整正文靠 load_skill 工具按需读取
+    const enabledSkillDirs = settings.skillsEnabled || {};
+    const skillCatalog = scanSkills().filter((s) => enabledSkillDirs[s.dir]);
+
     try {
       await runAgentTurn({
         history,
@@ -530,6 +621,8 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
         mcpEnabled,
         thinkingEnabled,
         systemPrompt: settings.systemPrompt,
+        facts,
+        skillCatalog,
         llmConfig: settings.llm,
         exaApiKey: settings.exaApiKey || "",
         aiClient,

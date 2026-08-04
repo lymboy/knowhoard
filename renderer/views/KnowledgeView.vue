@@ -110,6 +110,7 @@ export default {
         const line = {
           scanning:`扫描中：${event.source}`,
           "file-start":`索引中：${event.path} (${event.done}/${event.total})`,
+          "ocr-page":`OCR 识别中：${event.path}（第 ${event.page}/${event.total} 页）`,
           "file-skip":null,
           "file-done":`完成：${event.path}`,
           "file-error":`失败：${event.path} — ${event.error}`,

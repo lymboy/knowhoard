@@ -1,9 +1,13 @@
 /**
- * 网络工具：web_search / fetch_url / download_file。
+ * 网络工具：fetch_url / download_file。
  *
- * - web_search: Exa AI 语义搜索，专为 AI Agent 设计，理解自然语言查询
  * - fetch_url:  抓取网页/文档内容，支持 HTML、PDF、Word、Excel、CSV
  * - download_file: 下载文件到沙箱目录，只存不执行
+ *
+ * web_search 已改造成独立 MCP server（见 main/mcp/webSearchServer.js），
+ * 不再是这里的内置工具——这样用户能在设置页"MCP 工具"列表里看到它、单独管理，
+ * 而不是像以前那样藏在"内置工具"里。搜索逻辑本体在 main/tools/webSearch.js，
+ * 两边共用，不重复实现。
  *
  * 安全约束：
  * - 下载的文件存在 {userDataPath}/sandbox/downloads/，与应用数据隔离
@@ -57,75 +61,6 @@ function htmlToText(html) {
     .replace(/&#\d+;/g, "");
   text = text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   return text;
-}
-
-// ---------- Exa AI 搜索 ----------
-
-async function searchExa(query, apiKey, maxResults = 8) {
-  const resp = await fetch("https://api.exa.ai/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      query,
-      numResults: Math.min(maxResults || 8, 15),
-      type: "auto",
-      contents: {
-        // 直接返回每个结果的正文摘要，省得再发一轮 fetch_url
-        text: { maxCharacters: 1500 },
-      },
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
-
-  if (!resp.ok) {
-    const err = await resp.text().catch(() => "");
-    throw new Error(`Exa API 请求失败 (${resp.status}): ${err || resp.statusText}`);
-  }
-
-  const data = await resp.json();
-  return (data.results || []).map((r) => ({
-    title: r.title || "",
-    url: r.url || "",
-    snippet: r.text?.slice(0, 300) || r.highlight || "",
-    publishedDate: r.publishedDate || "",
-  }));
-}
-
-// DuckDuckGo 备用（用户没配 Exa API key 时降级使用）
-async function searchDuckDuckGo(query, maxResults = 8) {
-  const url = "https://lite.duckduckgo.com/lite";
-  const body = new URLSearchParams({ q: query, kl: "cn-zh" });
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    },
-    body: body.toString(),
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!resp.ok) throw new Error(`DuckDuckGo 请求失败: ${resp.status}`);
-  const html = await resp.text();
-  const results = [];
-  const linkRe = /<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippetRe = /<td[^>]*class=['"]result-snippet['"][^>]*>([\s\S]*?)<\/td>/gi;
-  const links = [];
-  let m;
-  while ((m = linkRe.exec(html)) !== null) {
-    const href = m[1];
-    const title = m[2].replace(/<[^>]+>/g, "").trim();
-    if (title && href && !href.includes("duckduckgo.com")) links.push({ url: href, title, snippet: "" });
-  }
-  const snippets = [];
-  while ((m = snippetRe.exec(html)) !== null) snippets.push(m[1].replace(/<[^>]+>/g, "").trim());
-  for (let i = 0; i < Math.min(links.length, maxResults); i++) {
-    links[i].snippet = snippets[i] || "";
-    results.push(links[i]);
-  }
-  return results;
 }
 
 // ---------- 文档解析 ----------
@@ -234,38 +169,6 @@ async function parseResponse(resp, url) {
 
 function getToolDefinitions() {
   return [
-    {
-      name: "web_search",
-      description:
-        "在互联网上搜索信息。用于调研类任务、查找技术文档、获取最新资讯。支持自然语言查询。返回搜索结果的标题、摘要和链接。如果没有配置 Exa API key，会自动降级到 DuckDuckGo。",
-      inputSchema: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "搜索关键词或自然语言问题",
-          },
-          max_results: {
-            type: "number",
-            description: "返回结果数量，默认 8，最大 15",
-          },
-        },
-        required: ["query"],
-      },
-      async handler({ query, max_results }, ctx) {
-        if (!query?.trim()) throw new Error("搜索关键词不能为空");
-        const max = Math.min(max_results || 8, 15);
-        // 优先用 Exa（语义搜索，效果更好），没有 API key 就降级 DuckDuckGo
-        const exaKey = ctx?.exaApiKey;
-        if (exaKey) {
-          const results = await searchExa(query.trim(), exaKey, max);
-          return { engine: "exa", query: query.trim(), results };
-        }
-        const results = await searchDuckDuckGo(query.trim(), max);
-        return { engine: "duckduckgo", query: query.trim(), results };
-      },
-    },
-
     {
       name: "fetch_url",
       description:

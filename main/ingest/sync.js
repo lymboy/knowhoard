@@ -53,9 +53,13 @@ async function removeDocument(documentId) {
   db.prepare(`DELETE FROM documents WHERE id = ?`).run(documentId);
 }
 
-async function indexDocument({ documentId, sourceId, filePath, aiClient }) {
+async function indexDocument({ documentId, sourceId, filePath, aiClient, onProgress = () => {} }) {
   const db = getDb();
-  const { text, hash, size, mtime } = await readFileContent(filePath);
+  // OCR 逐页进度接到同一条 sync:progress 通道（phase: "ocr-page"），扫描件 PDF 页数多时
+  // 用户能看到"第 3/12 页"而不是干等一个没反馈的长耗时操作
+  const onOcrPageProgress = ({ page, total }) =>
+    onProgress({ phase: "ocr-page", path: filePath, page, total });
+  const { text, hash, size, mtime } = await readFileContent(filePath, onOcrPageProgress);
   const filename = path.basename(filePath);
   const folder = path.dirname(filePath);
 
@@ -203,7 +207,7 @@ async function syncSource(sourceId, aiClient, onProgress = () => {}) {
       onProgress({ phase: "file-start", path: filePath, done, total: files.length });
       // 读文件/解析/分块这几步是 I/O 或轻量 CPU，多个文件可以并发做；真正吃 CPU 的 embedding
       // 在 aiWorkerClient 内部是排队串行执行的，所以这里的并发不会导致多个推理任务同时抢 CPU
-      await indexDocument({ documentId, sourceId, filePath, aiClient });
+      await indexDocument({ documentId, sourceId, filePath, aiClient, onProgress });
       onProgress({ phase: "file-done", path: filePath, done, total: files.length });
     } catch (error) {
       console.error(`索引失败: ${filePath}`, error);
