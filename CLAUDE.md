@@ -90,14 +90,14 @@ renderer/
 
 ## 待办清单（按优先级）
 
-### P0 — 未完成的用户明确要求
-1. **隐藏文件/目录过滤**：导入和 Obsidian 集成时排除 `.DS_Store`、`.git`、`node_modules`、`dist`、`build`、`.idea`、`.vscode` 等。改 `main/ingest/` 的 `walkDirectory` 和 `fileReaders`。用户提了两次，还没做。
-2. **提示词动态元数据**：系统提示词注入当前时间、时区、操作系统版本。用户提过，未做。
-3. **助手人设**：回答语气定位"贴心小助理"——和蔼可亲、不厌其烦。要调 KB/PLAIN_SYSTEM_PROMPT。
-4. **提交未提交代码**：tool_calls 持久化、思考模式修复、引用修复这批改动还在工作区没 commit。
+### P0 — 已完成（v0.4.0 随 V2 重构落地）
+1. **隐藏文件/目录过滤**：导入和 Obsidian 集成时排除 `.DS_Store`、`.git`、`node_modules`、`dist`、`build`、`.idea`、`.vscode` 等。改在 `main/ingest/` 的 `walkDirectory` 和 `fileReaders`。
+2. **提示词动态元数据**：系统提示词注入当前时间、时区、操作系统版本。
+3. **助手人设**：回答语气定位"贴心小助理"——和蔼可亲、不厌其烦。已调 KB/PLAIN_SYSTEM_PROMPT。
+4. **已提交**：tool_calls 持久化、思考模式修复、引用修复这批改动早已 commit。
 
-### P1 — 架构演进
-5. **渲染层迁移 Vue 3**（v0.3.0）：原生 DOM 操作已到极限（tool-result 匹配、reasoning 显示、主题冲突全是这类 bug）。选 Vue 不选 React：ESM 直引免构建、可按视图逐个迁、模板语法接近现有 HTML。功能不变只做迁移。
+### P1 — 架构演进（V2 进行中：refactor/v2-vite 分支）
+5. **渲染层迁移 Vue 3 + TDesign**（v0.4.0）：已从原生 DOM 迁到 Vite + Vue 3 + TDesign。Phase 1（vite 构建链路）/ Phase 2（单 Vue 应用 + TDesign 布局）/ Phase 3（对话层 TDesign 化）主干完成。剩余 Phase 4：清理 + 主题切换验收。设计文档见 `docs/superpowers/specs/2026-08-03-v2-vite-tdesign-refactor-design.md`。
 6. **Sub-agent / 并行任务**：聊过，暂缓。先把 tool 并行做扎实。
 7. **Web Search MCP 化**：目前 web_search 是内置函数，用户在 MCP 设置里看不到它作为独立 server。社区有 brave-search / tavily MCP server 可考虑接入。
 
