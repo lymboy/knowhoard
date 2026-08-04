@@ -24,9 +24,11 @@ const TOOL_DEFINITIONS = [
       const settings = getSettings();
       const enabled = settings.skillsEnabled || {};
       const all = scanSkills();
-      const skill = all.find((s) => s.name === name && enabled[s.dir]);
+      // 用绝对路径（id）当唯一标识，不同来源目录下可能有同名 skill 目录，name 不够唯一——
+      // 但这里模型只知道 name，先按 name 找出所有匹配，取第一个已启用的
+      const skill = all.find((s) => s.name === name && enabled[s.id]);
       if (!skill) throw new Error(`技能 "${name}" 不存在或未启用`);
-      const body = readSkillBody(skill.dir);
+      const body = readSkillBody(skill.id);
       return { name: skill.name, content: body };
     },
   },

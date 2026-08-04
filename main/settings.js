@@ -33,7 +33,8 @@ const DEFAULTS = {
   // 首次启动时自动写入 mcpServers.web-search 一次；标记置 true 后不再重复插入——
   // 这样用户手动移除它之后，重启 app 不会又被自动加回来
   webSearchMcpBootstrapped: false,
-  // Skill 开关：key 是 ~/.claude/skills/<dir> 的目录名，value 是是否启用。
+  // Skill 开关：key 是 skill 目录的绝对路径（见 main/skills/skillsManager.js 的 getSkillRoots），
+  // 不用目录名——不同来源目录下可能有同名 skill 子目录，目录名不足以唯一标识。
   // 没扫到过的 Skill 不在这里，默认视为未启用（新增的 Skill 目录不会自动开启）
   skillsEnabled: {},
 };

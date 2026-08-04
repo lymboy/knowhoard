@@ -216,16 +216,17 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
   });
 
   // ---------- Skill 管理 ----------
-  // 列表返回扫描到的所有 Skill + 各自的启用状态（未在 settings 里记录过的默认未启用）
+  // 列表返回扫描到的所有 Skill + 各自的启用状态（未在 settings 里记录过的默认未启用）。
+  // s.id 是 skill 目录的绝对路径，用它当 key（不同来源目录下可能有同名子目录，目录名不唯一）
   ipcMain.handle("skills:list", () => {
     const settings = getSettings();
     const enabled = settings.skillsEnabled || {};
-    return scanSkills().map((s) => ({ ...s, enabled: !!enabled[s.dir] }));
+    return scanSkills().map((s) => ({ ...s, enabled: !!enabled[s.id] }));
   });
-  ipcMain.handle("skills:toggle", (_e, { dir, enabled }) => {
+  ipcMain.handle("skills:toggle", (_e, { id, enabled }) => {
     const settings = getSettings();
     const current = { ...(settings.skillsEnabled || {}) };
-    current[dir] = enabled;
+    current[id] = enabled;
     updateSettings({ skillsEnabled: current });
     return true;
   });

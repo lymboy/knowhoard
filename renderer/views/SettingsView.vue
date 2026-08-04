@@ -117,14 +117,14 @@
       </div>
 
       <div class="tool-section">
-        <div class="tool-section-header"><h3>技能（Skill）</h3><span class="hint">兼容 ~/.claude/skills/ 目录格式。开启后技能名称和简介会出现在 AI 的背景信息里，AI 判断相关时会主动读取完整说明再执行。</span></div>
+        <div class="tool-section-header"><h3>技能（Skill）</h3><span class="hint">兼容 ~/.claude/skills/、~/.agents/skills/、~/.codex/skills/ 目录格式。开启后技能名称和简介会出现在 AI 的背景信息里，AI 判断相关时会主动读取完整说明再执行。</span></div>
         <t-list split>
-          <t-list-item v-for="s in skills" :key="s.dir">
+          <t-list-item v-for="s in skills" :key="s.id">
             <t-list-item-meta :title="s.name" :description="s.description" />
-            <template #action><t-switch v-model="s.enabled" @change="(v)=>onSkillToggle(s.dir,v)" /></template>
+            <template #action><t-switch v-model="s.enabled" @change="(v)=>onSkillToggle(s.id,v)" /></template>
           </t-list-item>
           <t-list-item v-if="!skills.length">
-            <span class="hint">没有在 ~/.claude/skills/ 下扫描到任何技能。</span>
+            <span class="hint">没有扫描到任何技能。</span>
           </t-list-item>
         </t-list>
       </div>
@@ -355,8 +355,8 @@ export default {
         this.skills = [];
       }
     },
-    async onSkillToggle(dir, enabled) {
-      await kb().skills.toggle(dir, enabled);
+    async onSkillToggle(id, enabled) {
+      await kb().skills.toggle(id, enabled);
     },
     async addMcpServer() {
       const name = (this.mcpNew.name||"").trim();

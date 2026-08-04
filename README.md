@@ -48,7 +48,7 @@ That's the model this app follows: once your sources are configured, every conve
 - 🧠 **Thinking mode** — surfaces the model's reasoning trace when the upstream model supports it, auto-detected
 - 🛠️ **MCP tool calling** — bring your own MCP servers (same config shape as Claude Desktop), toggle tool use per conversation
 - 🌐 **Web search** — its own MCP server (Exa first, DuckDuckGo fallback), auto-registered and manageable from the MCP tools list
-- 🧩 **Skill loading** — compatible with `~/.claude/skills/`-style directories; progressive loading keeps only name+description in the system prompt, full instructions fetched on demand
+- 🧩 **Skill loading** — compatible with `~/.claude/skills/`, `~/.agents/skills/`, and `~/.codex/skills/` (different agent tools use different conventions; more can be added); progressive loading keeps only name+description in the system prompt, full instructions fetched on demand
 - 🧵 **Cross-session memory** — when you leave a conversation, a background pass distills durable facts about you (role, preferences, long-running projects) into a small memory store, injected into future conversations
 - 📊 **Token usage dashboard** — input/output token charts by day / hour / minute, with running totals
 - 🔄 **Incremental sync** — MD5 content hashing means unchanged files are skipped entirely; deleted files are cleaned out of the index automatically
@@ -123,7 +123,7 @@ main/                  # Electron main process
   ingest/                # chunking, file parsers (incl. OCR), Obsidian connector, MD5 incremental sync
   rag/                   # hybrid retrieval
   mcp/                   # MCP client management, web search MCP server
-  skills/                # ~/.claude/skills/-compatible Skill scanning
+  skills/                # Skill scanning across multiple directory conventions (~/.claude, ~/.agents, ~/.codex)
   tools/                 # built-in tools (file access, web fetch, load_skill)
   index.js / ipc.js / preload.js / settings.js
 renderer/               # renderer process — Vite + Vue 3 + TDesign, built to renderer/dist/
@@ -149,7 +149,7 @@ Settings are entered from the in-app "设置" (Settings) page and persisted to `
 | 🎛️ temperature / top_p / top_k / max_tokens | No | Advanced params, defaults used when blank |
 | 📝 System prompt | No | Falls back to the built-in default when blank |
 | 🛠️ MCP servers | No | JSON, same shape as Claude Desktop's `mcpServers`; web search is registered here too |
-| 🧩 Skills | No | Toggle individual skills found under `~/.claude/skills/`; unrecognized/disabled skills stay invisible to the model |
+| 🧩 Skills | No | Toggle individual skills found under `~/.claude/skills/`, `~/.agents/skills/`, or `~/.codex/skills/`; unrecognized/disabled skills stay invisible to the model |
 | 🧵 Cross-session memory | No | View and delete distilled facts from the "跨会话记忆" (Cross-session memory) panel |
 
 `autoSyncOnLaunch` (default `true`) and `autoSyncIntervalMinutes` (default `20`) can currently only be changed by editing `settings.json` directly — no UI toggle yet. They control an automatic MD5-diff sync pass that runs on launch and every N minutes afterward: changed/new files get re-indexed, and files removed from disk have their index and vectors cleaned up too — without you having to remember to click "sync".

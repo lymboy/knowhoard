@@ -103,7 +103,7 @@ renderer/
 ### P2 — 已完成（v0.5.0）
 7. **Web Search MCP 化**：web_search 已从内置函数改造成 stdio MCP server（`main/mcp/webSearchServer.js`），设置页 MCP 工具列表可见可管理，保留 Exa 优先/DuckDuckGo 降级。首次启动自动写入一次默认配置，用户移除后不再补回。
 8. **跨会话记忆**：`facts` 表已加（`main/db/sqlite.js`）。用户离开会话时后台调 LLM 提炼（`extractConversationFacts`，`main/ipc.js`），不是每轮问答后触发。新会话读最近 20 条注入系统提示词（`main/ai/agentLoop.js`）。设置页"跨会话记忆"卡片可查看/删除。
-9. **Skill 加载**：`main/skills/skillsManager.js` 扫描 `~/.claude/skills/` 下的 SKILL.md，渐进式加载——系统提示词只放 name+description 目录，新增 `load_skill` 工具（`main/tools/skillTool.js`）供模型按需读取完整正文。设置页"技能（Skill）"区块管理开关，默认全部未启用。
+9. **Skill 加载**：`main/skills/skillsManager.js` 扫描 `~/.claude/skills/`、`~/.agents/skills/`、`~/.codex/skills/` 三个约定目录下的 SKILL.md（不同工具目录约定不统一，先兼容这三个，`getSkillRoots()` 加行就能扩展）。渐进式加载——系统提示词只放 name+description 目录，新增 `load_skill` 工具（`main/tools/skillTool.js`）供模型按需读取完整正文。开关的 key 是 skill 目录绝对路径（不同来源目录可能有同名子目录，目录名不唯一）。设置页"技能（Skill）"区块管理开关，默认全部未启用。
 10. **OCR**：`main/ingest/ocr.js`，pdfjs-dist 渲染页面 + @napi-rs/canvas（无系统依赖） + tesseract.js 识别，中英语言包随包打包在 `resources/tessdata/`（全程本地离线，不联网下载语言包）。`fileReaders.js` 原"无文本层直接报错"分支已改为先走 OCR。已知局限：CPU 密集，大批量扫描件会明显拖慢同步；没有跳过/暂停开关。
 11. **Linux/Windows 打包**：`titleBarStyle` 已按 `process.platform` 条件化（原无条件 `hiddenInset` 是 macOS 专属，非 mac 平台会双重顶部留白），补了 `window.kb.platform`、`build/icon.ico`、package.json 的 win/linux target。Linux AppImage / Windows NSIS 已在 macOS 上用 electron-builder 交叉编译验证跑通，**但没有在真实 Linux/Windows 机器上装机运行过**，`main/tools/builtinTools.js` 的 `safePath()` 在 Windows 大小写不敏感文件系统下的行为也没有真机验证。
 

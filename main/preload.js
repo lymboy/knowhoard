@@ -70,7 +70,7 @@ contextBridge.exposeInMainWorld("kb", {
   },
   skills: {
     list: () => ipcRenderer.invoke("skills:list"),
-    toggle: (dir, enabled) => ipcRenderer.invoke("skills:toggle", { dir, enabled }),
+    toggle: (id, enabled) => ipcRenderer.invoke("skills:toggle", { id, enabled }),
   },
   chat: {
     send: (params) => ipcRenderer.invoke("chat:send", params),
