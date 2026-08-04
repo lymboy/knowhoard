@@ -23,7 +23,7 @@
         @keydown="onKeydown"
         @input="autoResize"
       ></textarea>
-      <t-button theme="primary" @click="onSendClick">{{ store.sending ? '终止' : '发送' }}</t-button>
+      <t-button theme="primary" @click="onSendClick">{{ sending ? '终止' : '发送' }}</t-button>
     </div>
   </div>
 </template>
@@ -41,9 +41,15 @@ export default {
     store() {
       return window.__STORE;
     },
+    // 按当前正在查看的会话判断，不是全局状态——会话A在后台生成不影响会话B的按钮显示，
+    // 反之亦然。Vue 3 的 reactive() 对 Map 是深度响应式的，.has() 在 computed 里访问
+    // 会被正确追踪，activeConversationId 或 activeGenerations 变化都会触发重算
+    sending() {
+      return window.__STORE_API.isSending(this.store.activeConversationId);
+    },
   },
   watch: {
-    "store.sending"(sending) {
+    sending(sending) {
       if (!sending) {
         this.$nextTick(() => {
           if (this.$refs.textareaRef) this.$refs.textareaRef.focus();
@@ -75,11 +81,11 @@ export default {
       }
     },
     onSendClick() {
-      if (this.store.sending) window.__STORE_API.stopSending();
+      if (this.sending) window.__STORE_API.stopSending();
       else this.send();
     },
     async send() {
-      if (this.store.sending) return;
+      if (this.sending) return;
       const t = (this.text || "").trim();
       if (!t) return;
       this.text = "";

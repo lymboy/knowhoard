@@ -187,14 +187,18 @@ function getToolDefinitions() {
         },
         required: ["url"],
       },
-      async handler({ url, max_length }) {
+      async handler({ url, max_length }, ctx = {}) {
         if (!url?.trim()) throw new Error("URL 不能为空");
+        // 合并超时信号和用户终止信号——用户点"终止"时这个请求也要能被中断，
+        // 不能只靠超时兜底（30秒对用户来说太久，终止按钮点了应该立刻生效）
+        const signals = [AbortSignal.timeout(30000)];
+        if (ctx.signal) signals.push(ctx.signal);
         const resp = await fetch(url.trim(), {
           headers: {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             Accept: "text/html,application/xhtml+xml,text/plain,application/pdf,*/*",
           },
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.any(signals),
           redirect: "follow",
         });
         if (!resp.ok) throw new Error(`请求失败: ${resp.status} ${resp.statusText}`);
@@ -222,13 +226,15 @@ function getToolDefinitions() {
         },
         required: ["url"],
       },
-      async handler({ url, filename }) {
+      async handler({ url, filename }, ctx = {}) {
         if (!sandboxDir) throw new Error("沙箱目录未初始化");
         if (!url?.trim()) throw new Error("URL 不能为空");
 
+        const signals = [AbortSignal.timeout(60000)];
+        if (ctx.signal) signals.push(ctx.signal);
         const resp = await fetch(url.trim(), {
           headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-          signal: AbortSignal.timeout(60000),
+          signal: AbortSignal.any(signals),
           redirect: "follow",
         });
         if (!resp.ok) throw new Error(`下载失败: ${resp.status} ${resp.statusText}`);

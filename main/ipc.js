@@ -561,7 +561,9 @@ function registerIpcHandlers({ getWindow, aiClient, mcpManager }) {
       .map((m) => ({ role: m.role, content: decompressText(m.content) }));
     const history = truncateHistory(fullHistory);
 
-    const send = (event) => sendToWindow("chat:event", { requestId, ...event });
+    // conversationId 带上——渲染层要靠它判断这条流式事件属于"当前正在看的会话"还是
+    // "后台仍在生成的其他会话"，不能只靠 requestId（前端切走会话后不知道 requestId 归属谁）
+    const send = (event) => sendToWindow("chat:event", { requestId, conversationId, ...event });
 
     const userMessageId = saveMessage({ conversationId, role: "user", content: message, ragEnabled });
     send({ type: "user-message-saved", messageId: userMessageId });

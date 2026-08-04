@@ -149,6 +149,9 @@ class McpManager {
     return tools;
   }
 
+  // ctx 里的 signal（用户点"终止"时触发的 AbortSignal）会透传给内置工具 handler 和 MCP
+  // server 调用——之前没传，工具调用一旦发起，用户点终止对正在执行的工具完全不起作用，
+  // 只有等工具跑完、回到下一轮 LLM 决策的 fetch 才会被中断，用户体感是"点了没反应"
   async callTool(qualifiedName, args, ctx) {
     const sepIndex = qualifiedName.indexOf("__");
     const prefix = sepIndex >= 0 ? qualifiedName.slice(0, sepIndex) : "";
@@ -161,10 +164,14 @@ class McpManager {
       return await def.handler(args, ctx);
     }
 
-    // MCP 工具
+    // MCP 工具：signal 走标准 RequestOptions 第三参数（MCP SDK 协议层支持）
     const entry = this.clients.get(prefix);
     if (entry) {
-      const result = await entry.client.callTool({ name: toolName, arguments: args });
+      const result = await entry.client.callTool(
+        { name: toolName, arguments: args },
+        undefined,
+        ctx?.signal ? { signal: ctx.signal } : undefined
+      );
       return result;
     }
 

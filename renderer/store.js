@@ -23,8 +23,13 @@ export const store = reactive({
   // 对话开关状态（持久化在 settings，启动时从 settings 读回，切换时写 settings）
   ragEnabled: true,
   thinkingEnabled: false,
-  // 发送状态
-  sending: false,
+  // 每个会话独立的生成状态：conversationId -> { requestId, streamIndex }。
+  // 之前 sending/currentRequestId/currentStreamIndex 是全局单值，切会话时不会重置，
+  // 导致会话A还在生成时切到会话B，输入框显示"终止"（其实是A的状态），且A的流式事件
+  // 如果继续到达，会错误地写进当时正显示的 messages[]（可能已经是B的消息数组）。
+  // 改成按会话隔离：每个会话的生成状态只在自己的 entry 里，互不影响；support 会话A
+  // 在后台继续生成，切回A时用 activeGenerations 里记录的 streamIndex 继续接流式事件。
+  activeGenerations: new Map(),
   // 批量删除
   selecting: false,
   selectedMessageIds: new Set(),
@@ -35,10 +40,6 @@ export const store = reactive({
   messages: [],
   // 分页游标
   pageState: { conversationId: null, oldestCreatedAt: null, hasMore: false, loadingOlder: false },
-  // 当前流式请求的 requestId，用于匹配 chat 事件
-  currentRequestId: null,
-  // 当前流式 assistant 消息在 messages 里的索引（流式事件往这条上写）
-  currentStreamIndex: -1,
   // 自定义确认对话框（替代原生 confirm，跨视图共用）。showConfirm 设状态并返回 Promise，
   // App.vue 渲染 t-dialog，确定/取消回调 resolve
   confirm: { visible: false, message: "", resolve: null, okText: "确定", okDanger: false, cancelText: "取消" },
@@ -98,6 +99,19 @@ export async function loadConversation(id) {
     hasMore,
     loadingOlder: false,
   };
+
+  // 如果这个会话还在后台生成中（用户之前切走时没等它完成），重新定位 streamIndex 到
+  // 刚加载出来的 messages[] 里——后端流式增量落库（节流 UPDATE），所以这里拿到的已经是
+  // 目前生成到的最新内容；最后一条消息如果是 assistant 就是正在流式生成的那条，
+  // 标记 streaming:true 让气泡显示"正在生成…"的动画和光标，后续 delta 事件会继续往这条追加
+  const gen = store.activeGenerations.get(id);
+  if (gen) {
+    const lastMsg = store.messages[store.messages.length - 1];
+    if (lastMsg && lastMsg.role === "assistant") {
+      gen.streamIndex = store.messages.length - 1;
+      lastMsg.streaming = true;
+    }
+  }
 }
 
 // 后端历史消息字段 → store message 对象。统一字段名，Vue 模板用着顺手
@@ -138,9 +152,14 @@ export async function loadOlderMessages() {
   }
 }
 
+// ------ 会话级生成状态：某个会话是否正在生成中 ------
+export function isSending(conversationId) {
+  return store.activeGenerations.has(conversationId);
+}
+
 // ------ 发送消息：在 messages[] 追加 user + 占位 assistant，启动流式 ------
 export async function startSending(text, opts) {
-  if (store.sending) return;
+  if (isSending(store.activeConversationId)) return;
   if (!store.activeConversationId) {
     // 新会话用占位标题"新会话"创建，不截断首条消息当标题——首条截断会伪装成"像标题"，
     // 导致后端 AI 标题生成（generateConversationTitle）的 isPlaceholder 判断误以为用户改过而跳过。
@@ -150,6 +169,8 @@ export async function startSending(text, opts) {
   }
   // 不再在首次发消息时用首条截断改名——交给 AI 标题生成
 
+  const conversationId = store.activeConversationId;
+
   // 用户消息
   store.messages.push({ id: "", role: "user", content: text, reasoning: "", citations: [], toolCalls: [], favorited: false, streaming: false });
   // 占位 assistant
@@ -157,12 +178,12 @@ export async function startSending(text, opts) {
   store.messages.push({ id: "", role: "assistant", content: "", reasoning: "", citations: [], toolCalls: [], favorited: false, streaming: true });
 
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  store.currentRequestId = requestId;
-  store.currentStreamIndex = assistantIdx;
-  store.sending = true;
+  // 挂在这个会话自己的 entry 下——即使用户之后切走，这个 entry 还在，事件继续按
+  // conversationId 匹配路由，不会跟别的会话互相干扰
+  store.activeGenerations.set(conversationId, { requestId, streamIndex: assistantIdx });
 
   await getKb().chat.send({
-    conversationId: store.activeConversationId,
+    conversationId,
     message: text,
     // 检索开关只控制 RAG 向量检索，不控制工具。工具是否可用由工具总开关（toolsEnabled）决定，
     // 两者独立——关检索不代表禁用工具（工具能读文件是独立能力，不该被检索开关连带关掉）。
@@ -175,22 +196,27 @@ export async function startSending(text, opts) {
   return requestId;
 }
 
-// ------ 停止流式 ------
+// ------ 停止流式：只停当前正在查看的会话 ------
 export function stopSending() {
-  if (store.currentRequestId) getKb().chat.stop(store.currentRequestId);
+  const gen = store.activeGenerations.get(store.activeConversationId);
+  if (gen) getKb().chat.stop(gen.requestId);
 }
 
-// ------ 结束发送状态 ------
-export function endSending() {
-  store.sending = false;
-  if (store.currentStreamIndex >= 0 && store.messages[store.currentStreamIndex]) {
-    store.messages[store.currentStreamIndex].streaming = false;
+// ------ 结束发送状态：conversationId 由调用方传入（可能是当前会话，也可能是后台会话）------
+export function endSending(conversationId) {
+  const gen = store.activeGenerations.get(conversationId);
+  if (!gen) return;
+  // 只有事件所属会话恰好是当前正在查看的会话时，messages[] 里才有它对应的那条消息可以标记
+  if (conversationId === store.activeConversationId && store.messages[gen.streamIndex]) {
+    store.messages[gen.streamIndex].streaming = false;
   }
-  store.currentStreamIndex = -1;
+  store.activeGenerations.delete(conversationId);
 }
 
 // ------ 处理 chat 流式事件：更新 messages[]，Vue 自动重渲染 ------
-// 把 app.js 里那套 DOM 操作全部换成对 store.messages[currentStreamIndex] 的字段更新
+// 每个会话的生成状态独立存在 store.activeGenerations 里（见上面的说明），事件按
+// event.conversationId 找到对应的 gen 记录——不再依赖全局 currentRequestId/currentStreamIndex，
+// 会话A的事件不会因为用户切到了会话B就被错误地写进B当前显示的 messages[]。
 export function handleChatEvent(event) {
   // conversation:renamed 是 AI 标题摘要事件，不属于某次请求（无 requestId），单独处理，不走流式消息分支
   if (event.type === "conversation:renamed") {
@@ -198,33 +224,40 @@ export function handleChatEvent(event) {
     if (conv) conv.title = event.title;
     return;
   }
-  if (event.requestId !== store.currentRequestId) return;
-  if (store.currentStreamIndex < 0) return;
-  const msg = store.messages[store.currentStreamIndex];
-  if (!msg) return;
+
+  const gen = store.activeGenerations.get(event.conversationId);
+  if (!gen || event.requestId !== gen.requestId) return; // 不是当前追踪的这次请求，忽略（比如已经被新请求覆盖）
+
+  // 只有事件所属会话正是用户当前正在查看的会话时，才更新 messages[]——
+  // 后台会话（用户已经切走）的事件到这里就结束了，不碰 messages[]（可能已经是别的会话的数组），
+  // 内容已经由主进程落库，用户切回来时 loadConversation 会重新拉最新内容展示
+  const isViewingThisConversation = event.conversationId === store.activeConversationId;
+  const msg = isViewingThisConversation ? store.messages[gen.streamIndex] : null;
 
   switch (event.type) {
     case "user-message-saved": {
+      if (!msg) break;
       // 用户消息落库后才有 id，回填到前面那条用户消息
-      const userMsg = store.messages[store.currentStreamIndex - 1];
+      const userMsg = store.messages[gen.streamIndex - 1];
       if (userMsg && userMsg.role === "user") userMsg.id = event.messageId;
       break;
     }
     case "assistant-message-created": {
       // 流式开始就建了占位助手消息，id 最先拿到——回填后前端立即可收藏/操作
-      msg.id = event.messageId;
+      if (msg) msg.id = event.messageId;
       break;
     }
     case "delta":
-      msg.content += event.text;
+      if (msg) msg.content += event.text;
       break;
     case "reasoning":
-      msg.reasoning += event.text;
+      if (msg) msg.reasoning += event.text;
       break;
     case "reasoning-final":
-      msg.reasoning = event.text;
+      if (msg) msg.reasoning = event.text;
       break;
     case "tool-call": {
+      if (!msg) break;
       if (!msg.toolCalls) msg.toolCalls = [];
       msg.toolCalls.push({
         callId: event.id || "",
@@ -236,6 +269,7 @@ export function handleChatEvent(event) {
       break;
     }
     case "tool-result": {
+      if (!msg) break;
       // 按 callId 精确匹配（没有 id 的老数据按名字兜底），更新对应那条
       const calls = msg.toolCalls || [];
       const idx = event.id
@@ -256,43 +290,49 @@ export function handleChatEvent(event) {
       break;
     }
     case "done": {
-      msg.streaming = false;
-      // done 带的是重映射编号后的 content（[来源旧N]→[来源新N]，连续编号），覆盖流式累计的原始 content
-      msg.content = event.content || msg.content || "（无法生成回答）";
-      if (event.reasoning && !msg.reasoning) msg.reasoning = event.reasoning;
-      msg.citations = event.citations || [];
-      // done 事件里如果带 toolCalls（落库的那批），用它覆盖流式收集的（落库版本更准，含 ok 状态）
-      if (event.toolCalls && event.toolCalls.length) {
-        msg.toolCalls = event.toolCalls.map((tc) => ({
-          callId: "",
-          name: tc.name,
-          status: tc.ok ? "完成" : "失败",
-          result: tc.result || "",
-          ok: tc.ok,
-        }));
+      if (msg) {
+        msg.streaming = false;
+        // done 带的是重映射编号后的 content（[来源旧N]→[来源新N]，连续编号），覆盖流式累计的原始 content
+        msg.content = event.content || msg.content || "（无法生成回答）";
+        if (event.reasoning && !msg.reasoning) msg.reasoning = event.reasoning;
+        msg.citations = event.citations || [];
+        // done 事件里如果带 toolCalls（落库的那批），用它覆盖流式收集的（落库版本更准，含 ok 状态）
+        if (event.toolCalls && event.toolCalls.length) {
+          msg.toolCalls = event.toolCalls.map((tc) => ({
+            callId: "",
+            name: tc.name,
+            status: tc.ok ? "完成" : "失败",
+            result: tc.result || "",
+            ok: tc.ok,
+          }));
+        }
+        if (event.messageId) msg.id = event.messageId;
       }
-      if (event.messageId) msg.id = event.messageId;
       if (event.detectedThinkingSupport) updateThinkingToggleVisibility(true);
-      endSending();
+      endSending(event.conversationId);
       loadConversations();
       break;
     }
     case "saved": {
-      if (event.messageId) msg.id = event.messageId;
+      if (msg && event.messageId) msg.id = event.messageId;
       break;
     }
     case "stopped": {
-      msg.streaming = false;
-      if (!msg.content) msg.content = "_已终止_";
-      if (event.messageId) msg.id = event.messageId;
-      endSending();
+      if (msg) {
+        msg.streaming = false;
+        if (!msg.content) msg.content = "_已终止_";
+        if (event.messageId) msg.id = event.messageId;
+      }
+      endSending(event.conversationId);
       loadConversations();
       break;
     }
     case "error": {
-      msg.streaming = false;
-      msg.content = `⚠️ 出错了：${event.message}`;
-      endSending();
+      if (msg) {
+        msg.streaming = false;
+        msg.content = `⚠️ 出错了：${event.message}`;
+      }
+      endSending(event.conversationId);
       break;
     }
   }
@@ -360,6 +400,7 @@ if (typeof window !== "undefined") {
     deleteMessages,
     startSending,
     stopSending,
+    isSending,
     setAiStatus,
     handleChatEvent,
     showConfirm,

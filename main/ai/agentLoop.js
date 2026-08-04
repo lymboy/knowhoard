@@ -353,7 +353,7 @@ async function runAgentTurn(params) {
   // 工具调用循环（非流式，多轮，直到模型不再要求调用工具为止）
   const tools = mcpManager.listOpenAiTools();
   // 传递给工具的上下文（API key 等配置）
-  const toolCtx = { exaApiKey: params.exaApiKey || "" };
+  const toolCtx = { exaApiKey: params.exaApiKey || "", signal: params.signal };
   let rounds = 0;
   let finalMessage = null;
   let streamedFinal = false; // 最终回答是否已流式逐 token 发出（流式路径设 true，避免下面重复发整个 content）
